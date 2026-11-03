@@ -39,6 +39,6 @@ test('高度剖切可撤销并随工程保存，建筑扩展需显式进入',asy
  await page.goto('/');await page.getByRole('button',{name:'打开示例',exact:true}).click();await expect(page.locator('.status-bar')).toContainText('合成示例');
  await page.getByRole('button',{name:'设置',exact:true}).click();await page.getByLabel('剖切下限 m').fill('.5');await page.getByLabel('剖切上限 m').fill('1.8');await page.getByRole('button',{name:'保留高度范围',exact:true}).click();await expect(page.locator('.status-bar')).toContainText('已应用 1 次清理');
  const saved=unzipSync(await downloaded(page,'保存工程'));expect(JSON.parse(strFromU8(saved['project.json'])).source.clips).toContainEqual({axis:'z',rangeM:[.5,1.8],mode:'keep'});
- await page.getByRole('button',{name:'撤销清理',exact:true}).click();await expect(page.locator('.status-bar')).toContainText('已应用 0 次清理');
+ await page.getByRole('button',{name:'撤销',exact:true}).click();await expect(page.locator('.status-bar')).toContainText('已应用 0 次清理');
  await page.locator('.extensions-menu>summary').click();await page.getByRole('button',{name:'建筑模型',exact:true}).click();await expect(page.getByRole('button',{name:'从点云生成建筑候选',exact:true})).toBeVisible();await expect(page.locator('.extensions-menu')).not.toHaveAttribute('open','');
 });

@@ -32,6 +32,11 @@ ipcMain.handle("survey:device-receive", async (event, origin, session) => {
 ipcMain.handle("survey:keyframe-page", async (event, token, id) => { assertOwner(event); return store.readPage(token, id); });
 ipcMain.handle("survey:update-keyframe-page", async (event, token, id, review) => { assertOwner(event); return store.updatePage(token, id, review); });
 ipcMain.handle("survey:add-keyframe-page", async (event, token, review) => { assertOwner(event); return store.addPage(token, review); });
+ipcMain.handle("survey:clear-keyframe-pages", async (event, token) => {
+  assertOwner(event);
+  if (operation) throw Error("请先完成或取消当前任务。");
+  return store.clearKeyframePages(token);
+});
 ipcMain.handle("survey:keyframe-index", async (event, token) => { assertOwner(event); return store.reviewIndex(token); });
 ipcMain.handle("survey:semantic-assets", async event => {
   assertOwner(event);

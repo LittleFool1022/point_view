@@ -5,6 +5,7 @@ interface Window {
     keyframePage(token: string, id: string): Promise<ArrayBuffer>;
     updateKeyframePage(token: string, id: string, review: import("./domain/pairedReview").PairedReview): Promise<import("./domain/source").KeyframePage>;
     addKeyframePage(token: string, review: import("./domain/pairedReview").PairedReview): Promise<import("./domain/source").KeyframePage[]>;
+    clearKeyframePages(token: string): Promise<import("./domain/source").KeyframePage[]>;
     keyframeIndex(token: string): Promise<import("./domain/pairedReview").PairedFrameReference[]>;
     semanticAssets(): Promise<{model:ArrayBuffer;wasm:ArrayBuffer;metadata:unknown}>;
     open(kind: "cloud" | "project" | "frames"): Promise<import("./domain/source").OpenedInput | undefined>;
