@@ -1,0 +1,17 @@
+import { open, mkdir, writeFile } from "node:fs/promises";
+import { readCloud } from "../src/pipeline/binaryPcd";
+import { generateWallDrawing } from "../src/pipeline/wallLines";
+import { createCadDelivery } from "../../src/cad/package";
+const file = process.env.SURVEY_REAL_FIXTURE!;
+const h = await open(file, "r"), stat = await h.stat();
+const out = "artifacts/wall-lines-local"; await mkdir(out, { recursive: true });
+let last = ""; const progress = (s: string) => { const key = s.replace(/\d+.*/, ""); if (key !== last) { last = key; console.log(s); } };
+const decoded = await readCloud({ name: "real.pcd", native: { token: "fixture", name: "real.pcd", size: stat.size, sha256: "" } }, "m", async (offset, size) => { const b = Buffer.alloc(size); await h.read(b, 0, size, offset); return b.buffer; }, progress);
+await h.close(); const started = performance.now();
+const model = await generateWallDrawing(decoded.cloud, "真实点云.pcd", {}, progress);
+await writeFile(`${out}/model.json`, JSON.stringify(model));
+const delivery = await createCadDelivery(model, "wall-lines"); await writeFile(`${out}/wall-lines.zip`, delivery.archive);
+const lines = model.entities.filter(e => e.category === "wall" && e.type === "line");
+const all = lines.flatMap(e => e.type === "line" ? [e.start, e.end] : []), minX = Math.min(...all.map(p => p[0])), maxX = Math.max(...all.map(p => p[0])), minY = Math.min(...all.map(p => p[1])), maxY = Math.max(...all.map(p => p[1]));
+await writeFile(`${out}/walls.svg`, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${minX-1000} ${-maxY-1000} ${maxX-minX+2000} ${maxY-minY+2000}" width="1200" height="800"><rect x="${minX-1000}" y="${-maxY-1000}" width="${maxX-minX+2000}" height="${maxY-minY+2000}" fill="#20282c"/>${lines.map(e => e.type === "line" ? `<line x1="${e.start[0]}" y1="${-e.start[1]}" x2="${e.end[0]}" y2="${-e.end[1]}" stroke="#dceee8" stroke-width="35"/>` : "").join("")}</svg>`);
+console.log(JSON.stringify({ seconds: (performance.now()-started)/1000, walls: lines.length, parameters: model.parameters, bounds: { minX, minY, maxX, maxY } }));

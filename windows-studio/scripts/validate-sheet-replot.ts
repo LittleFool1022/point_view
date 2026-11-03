@@ -1,0 +1,11 @@
+import {readFile,writeFile} from 'node:fs/promises';
+import {cadSheet,restyleCadDrawing,createCadSheet} from '../../src/cad/sheet';
+import {exportCadDxf} from '../../src/cad/dxf';
+import {createSurveyDelivery} from '../src/domain/delivery';
+const root='artifacts/cad-sheet-20261029/real-20m',model=JSON.parse(await readFile(root+'/model.json','utf8')),base=JSON.parse(await readFile(root+'/result.json','utf8'));
+const old=cadSheet(model),sheetModel=restyleCadDrawing(model,{paperSize:'A1',scale:'1:100'}),vector=createCadSheet(sheetModel);
+if(JSON.stringify(model.entities.filter((e:any)=>e.category==='wall'))!==JSON.stringify(sheetModel.entities.filter((e:any)=>e.category==='wall')))throw Error('排版改动了测绘几何。');
+const source={name:model.sourceName,native:{token:'verified-existing-source',name:model.sourceName,size:base.sourceBytes,sha256:base.sourceSha256},units:'m' as const,synthetic:false};
+const delivery=await createSurveyDelivery(sheetModel,source);
+await writeFile(root+'/A1-model.json',JSON.stringify(sheetModel));await writeFile(root+'/A1.dxf',exportCadDxf(sheetModel));await writeFile(root+'/sheet.html',vector.html);await writeFile(root+'/sheet.svg',vector.svg);await writeFile(root+'/sheet.json',JSON.stringify(vector.sheet));await writeFile(root+'/A1-review.zip',delivery.archive);
+console.log(JSON.stringify({oldA3Outside:old.outsideEntityIds.length,oldA3TitleOverlap:old.titleOverlapEntityIds.length,newA1Outside:vector.sheet.outsideEntityIds.length,newA1TitleOverlap:vector.sheet.titleOverlapEntityIds.length,fullSourcePoints:base.fullSourcePoints,nativeDimensions:sheetModel.dimensions.length,geometryPreserved:true}));

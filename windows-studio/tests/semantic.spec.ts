@@ -1,0 +1,30 @@
+import {openStudioView} from "./studioPage";
+import {test,expect} from '@playwright/test';
+import {readFile,mkdir} from 'node:fs/promises';
+import {unzipSync,strFromU8} from 'fflate';
+const root=process.env.PAIRED_TRI_WORKSPACE,output=process.env.STACK_CLOSURE_OUTPUT;
+test('真实原图本地WASM推理、完整源点支持、人工意见保持及未分析帧补充',async({page})=>{
+ test.skip(!root,'设置三目真实工程目录');test.setTimeout(60000);
+ const errors:string[]=[],external:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.route('**/*',route=>{const url=new URL(route.request().url());if(['http:','https:'].includes(url.protocol)&&url.hostname!=='127.0.0.1'){external.push(url.href);return route.abort();}return route.continue();});
+ const review=JSON.parse(await readFile(`${root}/三目采集-关键帧.pvframes`,'utf8'));
+ await page.goto('/');const open=page.waitForEvent('filechooser');await page.getByRole('button',{name:'打开工程',exact:true}).click();await(await open).setFiles(`${root}/三目采集-联合复核.pvplan`);
+ await expect(page.locator('.status-bar')).toContainText('测量工程已恢复',{timeout:30000});await openStudioView(page,"关键帧复核");
+ await page.getByLabel('相机选择',{exact:true}).selectOption('left');
+ await page.getByRole('button',{name:'保留候选',exact:true}).click();await page.getByLabel('复核类别',{exact:true}).selectOption('door');await page.getByLabel('复核备注',{exact:true}).fill('重跑识别必须保留这条人工意见');
+ await page.getByRole('button',{name:'本地 AI 识别当前帧',exact:true}).click();
+ await expect(page.locator('.status-bar')).toContainText('本地 AI 已完成 1 帧识别',{timeout:30000});
+ await expect(page.getByLabel('复核类别',{exact:true})).toHaveValue('door');await expect(page.getByLabel('复核备注',{exact:true})).toHaveValue('重跑识别必须保留这条人工意见');
+ const frame=review.frames.find((f:any)=>f.cameraId==='left'&&!f.analyzed);
+ await page.getByLabel('关键帧选择',{exact:true}).selectOption(frame.id);
+ await page.getByRole('button',{name:'本地 AI 识别当前帧',exact:true}).click();
+ await expect(page.locator('.status-bar')).toContainText('本地 AI 已完成 1 帧识别',{timeout:30000});
+ await expect(page.locator('.paired-inspector')).toContainText('关联墙带：wall-');
+ await expect.poll(async()=>Number(await page.locator('.cloud-view').getAttribute('data-review-points'))).toBeGreaterThan(0);
+ await page.screenshot({path:'artifacts/semantic-offline-real.png'});
+ const saving=page.waitForEvent('download');await page.getByRole('button',{name:'保存工程',exact:true}).click();const project=await saving;
+ const entries=unzipSync(await readFile((await project.path())!)),state=JSON.parse(strFromU8(entries['project.json']!)),analyzed=state.pairedReview.frames.find((f:any)=>f.id===frame.id);
+ expect(analyzed.analyzed).toBe(true);expect(analyzed.inference).toMatchObject({engine:'onnxruntime-web',version:'1.31.1',inputSourcePoints:2106775});expect(analyzed.inference.modelSha256).toMatch(/^[a-f0-9]{64}$/);expect(analyzed.candidates.length).toBeGreaterThan(0);
+ if(output){await mkdir(output,{recursive:true});await project.saveAs(`${output}/三目本地AI-流程验证.pvplan`);}
+ expect(external).toEqual([]);expect(errors).toEqual([]);
+});

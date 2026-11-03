@@ -1,0 +1,5 @@
+{
+  "extends": "../tsconfig.app.json",
+  "compilerOptions": { "types": ["vite/client", "node"] },
+  "include": ["src", "../src/lazperf-loader.d.ts", "vite.config.ts", "vitest.config.ts", "playwright.config.ts", "tests"]
+}

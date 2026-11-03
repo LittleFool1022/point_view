@@ -1,0 +1,23 @@
+import {openStudioView} from "./studioPage";
+import {test,expect} from '@playwright/test';
+import {readFile} from 'node:fs/promises';
+import {unzipSync,strFromU8} from 'fflate';
+test('BIM候选→门窗编辑与越界拦截→IFC离线检查→工程恢复与模型派生图',async({page})=>{
+  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+  await page.goto('/');await page.getByRole('button',{name:'打开示例',exact:true}).click();await expect(page.locator('.status-bar')).toContainText('合成示例');
+  await openStudioView(page,"建筑模型");await page.getByRole('button',{name:'从点云生成建筑候选',exact:true}).click();await expect(page.locator('.status-bar')).toContainText('已生成 4 条墙候选和 1 个闭合房间');
+  await page.locator('.element-list button').first().click();await page.getByRole('button',{name:'新增门',exact:true}).click();await page.getByLabel('构件名称',{exact:true}).fill('主入口');await page.getByRole('button',{name:'应用构件修改',exact:true}).click();
+  await page.getByRole('button',{name:'新增窗',exact:true}).click();await page.getByLabel('洞口宽度 m',{exact:true}).fill('99');await page.getByRole('button',{name:'应用构件修改',exact:true}).click();await expect(page.locator('.status-bar')).toContainText('超出宿主墙体');
+  await page.getByLabel('洞口宽度 m',{exact:true}).fill('1.2');await page.getByRole('button',{name:'应用构件修改',exact:true}).click();
+  await expect(page.getByRole('button',{name:'导出交付 IFC',exact:true})).toBeDisabled();
+  const downloads:any[]=[];page.on('download',d=>downloads.push(d));await page.getByRole('button',{name:'导出复核 IFC',exact:true}).click();await expect(page.locator('.status-bar')).toContainText('IFC4 已通过离线解析与几何检查',{timeout:30000});
+  expect(downloads).toHaveLength(2);const ifc=await readFile((await downloads[0].path())!,'utf8');expect(ifc).toContain('IFCRELVOIDSELEMENT');expect(ifc).toContain('IFCRELFILLSELEMENT');const entries=unzipSync(await readFile((await downloads[1].path())!)),report=JSON.parse(strFromU8(entries['quantities-and-checks.json']!));expect(report.checks.schema).toBe('IFC4');expect(report.quantities.rooms[0].areaM2).toBeCloseTo(45.24,2);
+  await page.getByRole('button',{name:'标记全部构件已复核',exact:true}).click();await expect(page.getByRole('button',{name:'导出交付 IFC',exact:true})).toBeEnabled();
+  await page.screenshot({path:'artifacts/building-editor.png'});
+  const save=page.waitForEvent('download');await page.getByRole('button',{name:'保存工程',exact:true}).click();const project=await save;
+  await page.getByRole('button',{name:'由模型生成平面图',exact:true}).click();await expect(page.locator('.status-bar')).toContainText('模型平面图已生成');
+  await openStudioView(page,"建筑模型");await page.locator('.element-list button').first().click();await page.getByLabel('墙厚 m',{exact:true}).fill('.25');await page.getByRole('button',{name:'应用构件修改',exact:true}).click();
+  await page.getByRole('button',{name:'点云与 CAD',exact:true}).click();await expect(page.getByRole('button',{name:'导出 DXF 成果包',exact:true})).toBeDisabled();
+  page.once('dialog',d=>d.accept());const chooser=page.waitForEvent('filechooser');await page.getByRole('button',{name:'打开工程',exact:true}).click();await(await chooser).setFiles((await project.path())!);await expect(page.locator('.status-bar')).toContainText('测量工程已恢复');await openStudioView(page,"建筑模型");await expect(page.locator('.work-toolbar')).toContainText('4 墙 · 2 门窗 · 1 房间');
+  expect(errors).toEqual([]);
+});

@@ -1,0 +1,11 @@
+import { writeFile } from 'node:fs/promises';
+import { demoRoom } from '../src/domain/demo';
+import { decodeSource, generateDrawing } from '../src/pipeline/analysis';
+const cloud = await decodeSource('synthetic-8x6.pcd', demoRoom(), 'm');
+const model = generateDrawing(cloud, 'synthetic-8x6.pcd', 'xy', {});
+const points = model.entities.flatMap(entity => entity.category === 'wall' && entity.type === 'line' ? [entity.start, entity.end] : []);
+const extent = (axis: number) => Math.max(...points.map(p => p[axis]!)) - Math.min(...points.map(p => p[axis]!));
+const actualMm = [extent(0), extent(1)], referenceMm = [8000, 6000];
+const result = { fixture: 'synthetic axis-aligned 8m x 6m walls', sourcePoints: cloud.visible.length, referenceMm, wallExtentMm: actualMm, errorMm: actualMm.map((value, i) => value - referenceMm[i]!), gridResolutionMm: model.accuracy.gridResolutionMm, status: 'diagnostic-only; engineering accuracy not accepted' };
+await writeFile('artifacts/baseline-measurement.json', JSON.stringify(result, null, 2));
+console.log(JSON.stringify(result, null, 2));

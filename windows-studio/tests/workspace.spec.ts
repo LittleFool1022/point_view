@@ -1,0 +1,68 @@
+import {openStudioView} from "./studioPage";
+import { test, expect } from "@playwright/test";
+import { readFile } from "node:fs/promises";
+import { unzipSync, strFromU8 } from "fflate";
+test("独立工程工作台完成出图、标注、交付、工程恢复与过期拦截", async ({ page }) => {
+  const errors: string[] = []; page.on("pageerror", e => errors.push(e.message));
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "创作", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "打开示例", exact: true }).click();
+  await expect(page.locator(".status-bar")).toContainText("合成示例");
+  await page.getByRole("button", { name: "生成工程图", exact: true }).click();
+  await expect(page.locator(".status-bar")).toContainText("工程图已生成", { timeout: 30000 });
+  await page.getByLabel("标注内容", { exact: true }).fill("客厅复核");
+  await page.getByRole("button", { name: "在图纸放置标注", exact: true }).click();
+  const canvas = page.getByLabel("在图纸中放置标注 客厅复核", { exact: true }); const b = await canvas.boundingBox();
+  await page.mouse.click(b!.x + b!.width * .5, b!.y + b!.height * .5);
+  await expect(page.getByText("1 条人工标注", { exact: false })).toBeVisible();
+  const save = page.waitForEvent("download"); await page.getByRole("button", { name: "保存工程", exact: true }).click();
+  const project = await save, projectPath = (await project.path())!;
+  const deliveryPromise = page.waitForEvent("download"); await page.getByRole("button", { name: "导出 DXF 成果包", exact: true }).click();
+  const delivery = await deliveryPromise, zip = unzipSync(await readFile((await delivery.path())!));
+  const dxf = strFromU8(Object.entries(zip).find(([name]) => name.endsWith(".dxf"))![1]); expect(dxf).toContain("\\U+5BA2");
+  await page.getByLabel("图纸视图", { exact: true }).selectOption("xz");
+  await expect(page.getByRole("button", { name: "导出 DXF 成果包", exact: true })).toBeDisabled();
+  page.once("dialog", d => d.accept()); const chooser = page.waitForEvent("filechooser"); await page.getByRole("button", { name: "打开工程", exact: true }).click(); await (await chooser).setFiles(projectPath);
+  await expect(page.locator(".status-bar")).toContainText("测量工程已恢复"); await expect(page.getByText("1 条人工标注", { exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: "导出 DXF 成果包", exact: true })).toBeEnabled();
+  await page.screenshot({ path: "artifacts/workspace.png" });
+  await openStudioView(page,"建筑模型"); await expect(page.getByRole("button", {name:"从点云生成建筑候选",exact:true})).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("选区先预览后删除，取消不改数据；撤销重做与保存恢复", async ({ page }) => {
+  await page.goto("/"); await page.getByRole("button", { name: "打开示例", exact: true }).click();
+  await expect(page.locator(".status-bar")).toContainText("合成示例");
+  await page.getByRole("button", { name: "选区", exact: true }).click();
+  await page.getByLabel("视角", { exact: true }).selectOption("top");
+  await expect(page.getByLabel("选区选项", { exact: true })).toBeVisible();
+  const canvas = page.locator(".cloud-view canvas"), b = (await canvas.boundingBox())!;
+  async function select() {
+    await page.mouse.move(b.x + b.width * .15, b.y + b.height * .45);
+    await page.mouse.down(); await page.mouse.move(b.x + b.width * .5, b.y + b.height * .8, { steps: 8 }); await page.mouse.up();
+  }
+  await select();
+  await expect(page.locator(".cloud-selection")).toContainText("预览");
+  const selected = Number((await page.locator(".cloud-selection strong").innerText()).replaceAll(",", "")); expect(selected).toBeGreaterThan(0);
+  await expect(page.locator(".clean-history")).toContainText("0 次清理");
+  await page.keyboard.press("Escape"); await expect(page.getByRole("button", { name: "删除选中", exact: true })).toHaveCount(0);
+  await expect(page.locator(".clean-history")).toContainText("0 次清理");
+  await select();
+  await page.getByRole("button", { name: "删除选中", exact: true }).click();
+  await expect(page.locator(".status-bar")).toContainText("已应用 1 次清理");
+  await page.getByRole("button", { name: "撤销", exact: true }).click();
+  await expect(page.locator(".status-bar")).toContainText("已应用 0 次清理");
+  await page.getByRole("button", { name: "重做", exact: true }).click();
+  await expect(page.locator(".status-bar")).toContainText("已应用 1 次清理");
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await page.getByRole("button", { name: "恢复全部源点", exact: true }).click();
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await expect(page.locator(".status-bar")).toContainText("已应用 0 次清理");
+  await page.getByRole("button", { name: "撤销", exact: true }).click();
+  await expect(page.locator(".status-bar")).toContainText("已应用 1 次清理");
+  const save = page.waitForEvent("download"); await page.getByRole("button", { name: "保存工程", exact: true }).click(); const saved = await save;
+  const chooser = page.waitForEvent("filechooser"); await page.getByRole("button", { name: "打开工程", exact: true }).click(); await (await chooser).setFiles((await saved.path())!);
+  await expect(page.locator(".status-bar")).toContainText("测量工程已恢复");
+  await expect(page.getByRole("button", { name: "撤销", exact: true })).toBeEnabled();
+  await page.screenshot({ path: "artifacts/toolbox.png" });
+});

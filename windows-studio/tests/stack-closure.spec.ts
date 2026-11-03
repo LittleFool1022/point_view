@@ -1,0 +1,55 @@
+import {openStudioView} from "./studioPage";
+import {test,expect} from '@playwright/test';
+import {readFile,mkdir} from 'node:fs/promises';
+import {unzipSync,strFromU8} from 'fflate';
+const root=process.env.PAIRED_TRI_WORKSPACE,output=process.env.STACK_CLOSURE_OUTPUT;
+test('真实三目→墙带BIM草案→跨帧归并→同修订CAD/IFC/清单→工程恢复',async({page})=>{
+ test.skip(!root,'设置真实三目工程目录');test.setTimeout(60000);
+ const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+ const review=JSON.parse(await readFile(`${root}/三目采集-关键帧.pvframes`,'utf8'));
+ await page.goto('/');
+ const open=page.waitForEvent('filechooser');await page.getByRole('button',{name:'打开工程',exact:true}).click();await(await open).setFiles(`${root}/三目采集-联合复核.pvplan`);
+ await expect(page.locator('.status-bar')).toContainText('测量工程已恢复',{timeout:30000});await openStudioView(page,"关键帧复核");
+ await page.getByRole('button',{name:'生成墙带建筑草案',exact:true}).click();
+ await expect(page.locator('.status-bar')).toContainText('已建立 8 面墙带草案');
+ const live=review.frames.find((f:any)=>f.cameraId==='left'&&!f.analyzed);
+ await page.getByLabel('相机选择',{exact:true}).selectOption('left');await page.getByLabel('关键帧选择',{exact:true}).selectOption(live.id);
+ await page.getByRole('button',{name:'本地 AI 识别当前帧',exact:true}).click();await expect(page.locator('.status-bar')).toContainText('本地 AI 已完成 1 帧识别',{timeout:30000});
+ async function choose(camera:string,index:number,frameId?:string){
+  await page.getByLabel('相机选择',{exact:true}).selectOption(camera);
+  const frame=review.frames.filter((f:any)=>f.cameraId===camera&&f.analyzed)[index];
+  await page.getByLabel('关键帧选择',{exact:true}).selectOption(frameId??frame.id);
+  await page.getByRole('button',{name:'保留候选',exact:true}).click();
+  await page.getByLabel('复核备注',{exact:true}).fill('自动流程验证保留；物理归属与完整尺寸仍待人工复核');
+ }
+ await choose('left',0,live.id);
+ await page.getByRole('button',{name:'按当前参数加入 BIM 草案',exact:true}).click();
+ await expect(page.locator('.status-bar')).toContainText('已加入待复核 BIM 草案');
+ await choose('left',1);
+ await page.getByLabel('归并已有门窗',{exact:true}).selectOption({index:1});
+ await page.getByRole('button',{name:'追加为同一门窗证据',exact:true}).click();
+ await expect(page.locator('.status-bar')).toContainText('已追加至同一门窗');
+ await choose('right',0);
+ await page.getByRole('button',{name:'按当前参数加入 BIM 草案',exact:true}).click();
+ await expect(page.locator('.status-bar')).toContainText('已加入待复核 BIM 草案');
+ await openStudioView(page,"建筑模型");
+ await expect(page.locator('.work-toolbar')).toContainText('8 墙 · 2 门窗 · 0 房间');
+ await page.screenshot({path:'artifacts/stack-closure-bim.png'});
+ await openStudioView(page,"建筑模型");
+ const exporting=page.waitForEvent('download');await page.getByRole('button',{name:'导出 CAD / BIM 复核包',exact:true}).click();const archive=await exporting;
+ await expect(page.locator('.status-bar')).toContainText('同修订成果包已保存');
+ const entries=unzipSync(await readFile((await archive.path())!));
+ const manifest=JSON.parse(strFromU8(entries['manifest.json']!)),model=JSON.parse(strFromU8(entries['building.json']!)),report=JSON.parse(strFromU8(entries['review.json']!));
+ expect(manifest.source.points).toBe(2106775);expect(manifest.source.sha256).toBe(review.sourceSha256);
+ expect(model.openings).toHaveLength(2);expect(model.openings.find((o:any)=>o.kind==='window').keyframes).toHaveLength(2);expect(model.openings.find((o:any)=>o.kind==='window').keyframes[0].model.runtime).toBe('onnxruntime-web/1.31.1');expect(model.openings.find((o:any)=>o.kind==='door').keyframes[0].cameraId).toBe('right');
+ expect(model.openings.every((o:any)=>!o.evidence.confirmed)).toBe(true);expect(report.ifcCheck.schema).toBe('IFC4');expect(report.constructionAccepted).toBe(false);
+ expect(manifest.building.revision).toBe(model.revision);expect(Object.keys(entries).filter(n=>n.endsWith('.dxf'))).toHaveLength(1);
+ const exportedHashes=await page.evaluate(async(files:Array<{name:string;bytes:number[]}>)=>Promise.all(files.map(async f=>({name:f.name,hash:[...new Uint8Array(await crypto.subtle.digest('SHA-256',new Uint8Array(f.bytes)))].map(x=>x.toString(16).padStart(2,'0')).join('')}))),manifest.files.map((f:any)=>({name:f.name,bytes:Array.from(entries[f.name]!)})));
+ for(const f of manifest.files)expect(exportedHashes.find(e=>e.name===f.name)!.hash).toBe(f.sha256);
+ const saving=page.waitForEvent('download');await page.getByRole('button',{name:'保存工程',exact:true}).click();const project=await saving;
+ if(output){await mkdir(output,{recursive:true});await archive.saveAs(`${output}/三目建筑草案-同修订复核成果.zip`);await project.saveAs(`${output}/三目建筑草案-流程验证.pvplan`);}
+ const reopening=page.waitForEvent('filechooser');await page.getByRole('button',{name:'打开工程',exact:true}).click();await(await reopening).setFiles((await project.path())!);
+ await expect(page.locator('.status-bar')).toContainText('测量工程已恢复',{timeout:30000});await openStudioView(page,"关键帧复核");
+ await openStudioView(page,"建筑模型");await expect(page.locator('.work-toolbar')).toContainText('8 墙 · 2 门窗 · 0 房间');
+ expect(errors).toEqual([]);
+});
