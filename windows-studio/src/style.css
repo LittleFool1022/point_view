@@ -2159,3 +2159,107 @@ input {
 .cloud-view.tool-erase .brush-ring.is-on { display: block; }
 .cloud-view.tool-erase.is-locked .brush-ring.is-on { display: none; }
 @media (max-width: 460px) { .cloud-options input[type="range"] { width: 72px; } }
+
+/* 导入单位与范围核对条 */
+.import-check-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 32px;
+  padding: 3px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.import-check-bar.is-suspicious {
+  background: var(--warn-bg);
+  border-bottom-color: var(--warn-border);
+  color: var(--warn-text);
+}
+
+.import-check-items {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.import-check-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 3px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.import-check-bar.is-suspicious .import-check-pill {
+  background: #f9e6c7;
+  border-color: var(--warn-border);
+  color: var(--warn-text);
+}
+
+.import-check-note {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--surface-sub);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.import-check-stat {
+  color: var(--text-main);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.import-check-stat + .import-check-stat::before {
+  content: "·";
+  margin-right: 8px;
+  color: var(--text-muted);
+}
+
+.import-check-warning {
+  color: var(--warn-text);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.import-switch-btn {
+  min-height: 24px;
+  padding: 2px 9px;
+  font-size: 11.5px;
+  flex-shrink: 0;
+}
+
+.import-check-bar.is-suspicious .import-switch-btn {
+  border-color: var(--warn-border);
+  color: var(--warn-text);
+  background: var(--surface);
+  font-weight: 600;
+}
+
+.import-check-bar.is-suspicious .import-switch-btn:hover:not(:disabled) {
+  background: #fff9f0;
+  border-color: #c89d58;
+  color: #5e3b0b;
+}

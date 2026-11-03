@@ -63,7 +63,9 @@ self.onmessage = async ({ data }: MessageEvent) => {
       const p = decoded.preview;
       const preview = { ...p, retainedPointCount:retained, positions: p.positions.slice(), colors: p.colors.slice(), visible: Uint8Array.from(p.sourcePointIndices ?? [], index => decoded!.cloud.visible[index]!), sourcePointIndices: p.sourcePointIndices?.slice() };
       const buffers: Transferable[] = [preview.positions.buffer, preview.colors.buffer, preview.visible.buffer]; if (preview.sourcePointIndices) buffers.push(preview.sourcePointIndices.buffer);
-      self.postMessage({ id: request.id, result: preview }, { transfer: buffers });
+      // 导入同时回传完整点云范围；清理只回传预览，避免界面误用旧范围。
+      const result = request.action === "import" ? { cloud: preview, bounds: decoded.bounds } : preview;
+      self.postMessage({ id: request.id, result }, { transfer: buffers });
     } else self.postMessage({ id: request.id, result: await generateLargeDrawing(decoded, source.name, request.projection!, request.settings ?? {}, progress) });
   } catch (error) { self.postMessage({ id: request.id, error: error instanceof Error ? error.message : String(error) }); }
 };
