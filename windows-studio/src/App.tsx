@@ -13,7 +13,7 @@ import type { ClipRule, EditedPointCloud } from "./domain/cleaning";
 import type {BrushStroke,BrushEditResult} from "./domain/brush";
 import { PairedWorkspace } from "./PairedWorkspace";
 import { DeviceImport } from "./DeviceImport";
-import type { OpenedInput } from "./domain/source";
+import type { KeyframePage, OpenedInput } from "./domain/source";
 import { buildingFromPairedReview, addKeyframeOpening, linkKeyframeOpening, type OpeningPlacement } from "./domain/pairedBuilding";
 import { createUnifiedDelivery, type IfcArtifact } from "./domain/unifiedDelivery";
 import { MAX_PAIRED_BYTES, cameraForFrame, verifyPairedReview, type PairedCandidate, type PairedReview } from "./domain/pairedReview";
@@ -87,6 +87,13 @@ export function App() {
     return new Promise<T>((resolve, reject) => { if (pending.current) { reject(Error("已有分析任务正在运行。")); return; } const id = ++sequence.current; pending.current = { id, resolve: value => resolve(value as T), reject }; worker.current!.postMessage({ id, ...data }); });
   }
   async function action(stage: string, callback: () => Promise<void>) { setBusy(stage); try { await callback(); } catch (e) { setNotice(e instanceof Error ? e.message : String(e)); } finally { setBusy(""); } }
+  /** 解码已改变 worker 缓存但尚未提交界面状态时，必须丢弃缓存，避免后续继续用错尺度。 */
+  function discardAnalysisWorker() {
+    pending.current?.reject(Error("分析已中止，请重试。"));
+    pending.current = undefined;
+    worker.current?.terminate();
+    worker.current = undefined;
+  }
   function applyImportedSource(next: SurveySource, decoded: ImportResult, check: ImportCheck) {
     if (source?.native && source.native.token !== next.native?.token) void window.surveyDesktop?.release(source.native.token);
     // 新尺度下旧裁剪、图纸、标注、模型、精度记录和关键帧关联均不可沿用。
@@ -115,10 +122,23 @@ export function App() {
     const next = { ...source, units: nextUnit, clips: [], key: crypto.randomUUID() };
     void action(`按${label}重新解码当前源文件`, async () => {
       const decoded = await request<ImportResult>({ action: "import", source: next });
-      if (next.deviceReceipt && decoded.cloud.sourcePointCount !== next.deviceReceipt.points) throw Error("设备点数回执与完整点云不一致，未切换单位。");
-      const check = assessImportExtents(decoded.bounds, decoded.cloud.sourcePointCount ?? decoded.cloud.visible.length);
-      applyImportedSource(next, decoded, check);
-      setNotice(`已按${label}重新解码 ${next.name}：${check.sizeM.map(v => v.toFixed(2)).join(" × ")} m · ${check.pointCount.toLocaleString()} 点。旧尺度成果已清理${check.suspicious ? "；当前范围仍需核对。" : "。"}`);
+      let committed = next;
+      try {
+        if (next.deviceReceipt && decoded.cloud.sourcePointCount !== next.deviceReceipt.points) throw Error("设备点数回执与完整点云不一致，未切换单位。");
+        // 桌面 token 同时持有已附加的原图卷；只在解码成功后解除，避免失败时丢失原关联。
+        if (next.native && window.surveyDesktop?.clearKeyframePages) {
+          let pages: KeyframePage[];
+          try { pages = await window.surveyDesktop.clearKeyframePages(next.native.token); }
+          catch (error) { throw Error(`清理旧关键帧卷失败，未切换单位：${error instanceof Error ? error.message : String(error)}`); }
+          committed = { ...next, native: { ...next.native, keyframePages: pages } };
+        }
+        const check = assessImportExtents(decoded.bounds, decoded.cloud.sourcePointCount ?? decoded.cloud.visible.length);
+        applyImportedSource(committed, decoded, check);
+        setNotice(`已按${label}重新解码 ${next.name}：${check.sizeM.map(v => v.toFixed(2)).join(" × ")} m · ${check.pointCount.toLocaleString()} 点。旧尺度成果已清理${check.suspicious ? "；当前范围仍需核对。" : "。"}`);
+      } catch (error) {
+        discardAnalysisWorker();
+        throw error;
+      }
     });
   }
   /** 可疑单位未确认时拦住成图；正常范围不增加步骤。 */

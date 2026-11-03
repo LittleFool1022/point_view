@@ -88,4 +88,84 @@ describe("完整工程的多卷原图", () => {
       expect(JSON.parse(Buffer.from(await f.store.readPage(f.source.token, f.pages[0]!.id)).toString()).frames[0].sha256).toBe(f.reviews[0].frames[0].sha256);
     } finally { await f.store.close(); await rm(f.root, { recursive: true, force: true }); }
   });
+  it("单位切换到毫米后清理桌面 token 的关键帧卷，保存重开不再恢复米制复核", async () => {
+    const f = await setup(), openedStore = new SourceStore(), restoredStore = new SourceStore();
+    try {
+      const metricProject = path.join(f.root, "metric.pvplan");
+      await f.store.saveProject(f.source.token, metricProject, {
+        source: { units: "m", synthetic: false }, pairedReview: f.reviews[0],
+        activeKeyframePage: f.pages[0]!.id, projection: "xy", settings: {}, annotations: [],
+      });
+      const opened = await openedStore.openProject(metricProject);
+      expect(opened.native.keyframePages).toHaveLength(3);
+      expect(await openedStore.reviewIndex(opened.native.token)).toHaveLength(3);
+      expect(await openedStore.clearKeyframePages(opened.native.token)).toEqual([]);
+      expect(await openedStore.reviewIndex(opened.native.token)).toEqual([]);
+      await expect(openedStore.readPage(opened.native.token, f.pages[0]!.id)).rejects.toThrow("不存在");
+
+      const switched = path.join(f.root, "switched-mm.pvplan");
+      await openedStore.saveProject(opened.native.token, switched, {
+        source: { units: "mm", synthetic: false }, projection: "xy", settings: {}, annotations: [],
+      });
+      const handle = await open(switched, "r"), head = Buffer.alloc(12); await handle.read(head, 0, 12, 0); await handle.close();
+      expect(head.subarray(0, 8).toString()).toBe("PVPLAN2\n");
+
+      const restored = await restoredStore.openProject(switched);
+      expect(restored.project.source.units).toBe("mm");
+      expect(restored.project.pairedReview).toBeUndefined();
+      expect(restored.project.activeKeyframePage).toBeUndefined();
+      expect(restored.native.keyframePages).toBeUndefined();
+      expect(await restoredStore.reviewIndex(restored.native.token)).toEqual([]);
+      expect(Buffer.from(await restoredStore.read(restored.native.token, 0, f.bytes.length))).toEqual(f.bytes);
+      expect(restored.native.sha256).toBe(f.source.sha256);
+    } finally { await f.store.close(); await openedStore.close(); await restoredStore.close(); await rm(f.root, { recursive: true, force: true }); }
+  });
+
+  it("调用方漏清关键帧卷时，毫米工程仍不持久化旧卷或旧复核", async () => {
+    const f = await setup(), restoredStore = new SourceStore();
+    try {
+      expect(await f.store.reviewIndex(f.source.token)).toHaveLength(3);
+      const project = path.join(f.root, "defensive-mm.pvplan");
+      // 模拟切换路径漏清 token：保存层仍必须拒绝把米制关键帧卷写入毫米工程。
+      await f.store.saveProject(f.source.token, project, {
+        source: { units: "mm", synthetic: false }, pairedReview: f.reviews[0],
+        activeKeyframePage: f.pages[0]!.id, projection: "xy", settings: {}, annotations: [],
+      });
+      const handle = await open(project, "r"), head = Buffer.alloc(12); await handle.read(head, 0, 12, 0); await handle.close();
+      expect(head.subarray(0, 8).toString()).toBe("PVPLAN2\n");
+      const restored = await restoredStore.openProject(project);
+      expect(restored.project.pairedReview).toBeUndefined();
+      expect(restored.project.activeKeyframePage).toBeUndefined();
+      expect(restored.native.keyframePages).toBeUndefined();
+      expect(await restoredStore.reviewIndex(restored.native.token)).toEqual([]);
+    } finally { await f.store.close(); await restoredStore.close(); await rm(f.root, { recursive: true, force: true }); }
+  });
+
+  it("旧版毫米工程残留关键帧卷时，重开只保留源件并忽略不兼容复核", async () => {
+    const f = await setup(), restoredStore = new SourceStore();
+    try {
+      const metricProject = path.join(f.root, "legacy-metric.pvplan");
+      await f.store.saveProject(f.source.token, metricProject, {
+        source: { units: "m", synthetic: false }, pairedReview: f.reviews[0],
+        activeKeyframePage: f.pages[0]!.id, projection: "xy", settings: {}, annotations: [],
+      });
+      const original = await readFile(metricProject), length = original.readUInt32LE(8);
+      const manifest = JSON.parse(original.subarray(12, 12 + length).toString("utf8"));
+      manifest.source.units = "mm";
+      const body = Buffer.from(JSON.stringify(manifest));
+      const legacy = Buffer.concat([Buffer.from("PVPLAN3\n"), (() => {
+        const header = Buffer.alloc(4); header.writeUInt32LE(body.length); return header;
+      })(), body, original.subarray(12 + length)]);
+      const legacyProject = path.join(f.root, "legacy-mm.pvplan"); await writeFile(legacyProject, legacy);
+
+      const restored = await restoredStore.openProject(legacyProject);
+      expect(restored.project.schema).toBe("survey-project/2");
+      expect(restored.project.source.units).toBe("mm");
+      expect(restored.project.pairedReview).toBeUndefined();
+      expect(restored.native.keyframePages).toBeUndefined();
+      expect(await restoredStore.reviewIndex(restored.native.token)).toEqual([]);
+      expect(Buffer.from(await restoredStore.read(restored.native.token, 0, f.bytes.length))).toEqual(f.bytes);
+    } finally { await f.store.close(); await restoredStore.close(); await rm(f.root, { recursive: true, force: true }); }
+  });
+
 });

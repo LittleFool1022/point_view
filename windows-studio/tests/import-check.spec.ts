@@ -33,6 +33,25 @@ async function checkBar(page: Page) {
   return page.getByRole("group", { name: "导入单位与范围核对" });
 }
 
+async function failUnitReimport(page: Page) {
+  await page.evaluate(() => {
+    const original = Worker.prototype.postMessage;
+    (window as any).__restoreImportWorker = () => { Worker.prototype.postMessage = original; };
+    Worker.prototype.postMessage = function (this: Worker, message: any, transfer?: any) {
+      if (message?.action === "import" && message?.source?.units === "mm") {
+        const id = message.id;
+        queueMicrotask(() => this.dispatchEvent(new MessageEvent("message", { data: { id, error: "模拟重解码失败" } })));
+        return;
+      }
+      return original.call(this, message, transfer);
+    } as typeof Worker.prototype.postMessage;
+  });
+}
+
+async function restoreUnitReimport(page: Page) {
+  await page.evaluate(() => (window as any).__restoreImportWorker?.());
+}
+
 test.beforeAll(async () => {
   await mkdir(fixtureDir, { recursive: true });
   await mkdir(afterDir, { recursive: true });
@@ -105,24 +124,13 @@ test("毫米坐标误按米导入：警告、取消、失败保留原工程，�
   await expect(bar).toContainText("8000.00 × 6000.00 × 2600.00 m");
 
   // 模拟重解码失败：不提交任何新状态，原工程仍可用。
-  await page.evaluate(() => {
-    const original = Worker.prototype.postMessage;
-    (window as any).__restoreImportWorker = () => { Worker.prototype.postMessage = original; };
-    Worker.prototype.postMessage = function (this: Worker, message: any, transfer?: any) {
-      if (message?.action === "import" && message?.source?.units === "mm") {
-        const id = message.id;
-        queueMicrotask(() => this.dispatchEvent(new MessageEvent("message", { data: { id, error: "模拟重解码失败" } })));
-        return;
-      }
-      return original.call(this, message, transfer);
-    } as typeof Worker.prototype.postMessage;
-  });
+  await failUnitReimport(page);
   page.once("dialog", dialog => dialog.accept());
   await bar.getByRole("button", { name: "按毫米重新导入", exact: true }).click();
   await expect(page.locator(".status-bar")).toContainText("模拟重解码失败");
   await expect(bar).toContainText("8000.00 × 6000.00 × 2600.00 m");
   await expect(bar).toContainText("源单位 米");
-  await page.evaluate(() => (window as any).__restoreImportWorker?.());
+  await restoreUnitReimport(page);
 
   // 成功切换到毫米：旧尺度成果清理，恢复正确尺寸并生成墙线图。
   page.once("dialog", dialog => dialog.accept());
@@ -161,7 +169,7 @@ test("毫米坐标误按米导入：警告、取消、失败保留原工程，�
   await page.screenshot({ path: path.join(afterDir, "03-mm-fixed.png") });
 });
 
-test("关键帧关联在单位切换后清理，避免沿用旧尺度", async ({ page }) => {
+test("带关键帧工程：失败切换保留关联，成功切换后清理并可保存重开", async ({ page }) => {
   await page.goto("/");
   await importCloud(page, mmPath);
   await openStudioView(page, "关键帧复核");
@@ -170,10 +178,36 @@ test("关键帧关联在单位切换后清理，避免沿用旧尺度", async ({
   await (await frames).setFiles(framesPath);
   await expect(page.locator(".status-bar")).toContainText("关键帧原图与点云校验通过");
   await expect(page.getByText("1 张原图", { exact: false })).toBeVisible();
+
+  // 解码失败时不清理关键帧关联，原工程仍可继续复核。
+  await page.getByRole("button", { name: "点云与 CAD", exact: true }).click();
+  await failUnitReimport(page);
+  page.once("dialog", dialog => dialog.accept());
+  await (await checkBar(page)).getByRole("button", { name: "按毫米重新导入", exact: true }).click();
+  await expect(page.locator(".status-bar")).toContainText("模拟重解码失败");
+  await openStudioView(page, "关键帧复核");
+  await expect(page.getByText("1 张原图", { exact: false })).toBeVisible();
+  await restoreUnitReimport(page);
+
+  // 成功切换后清空旧尺度关键帧关联。
   await page.getByRole("button", { name: "点云与 CAD", exact: true }).click();
   page.once("dialog", dialog => dialog.accept());
   await (await checkBar(page)).getByRole("button", { name: "按毫米重新导入", exact: true }).click();
   await expect(page.locator(".status-bar")).toContainText("已按毫米重新解码");
+  await openStudioView(page, "关键帧复核");
+  await expect(page.getByRole("heading", { name: "暂无关键帧", exact: true })).toBeVisible();
+
+  // 浏览器工程保存/重开后也不恢复旧关键帧复核。
+  await page.getByRole("button", { name: "点云与 CAD", exact: true }).click();
+  const save = page.waitForEvent("download");
+  await page.getByRole("button", { name: "保存工程", exact: true }).click();
+  const savedPath = (await (await save).path())!;
+  const entries = unzipSync(await readFile(savedPath));
+  expect(JSON.parse(strFromU8(entries["project.json"]!)).pairedReview).toBeUndefined();
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "打开工程", exact: true }).click();
+  await (await chooser).setFiles(savedPath);
+  await expect(page.locator(".status-bar")).toContainText("测量工程已恢复");
   await openStudioView(page, "关键帧复核");
   await expect(page.getByRole("heading", { name: "暂无关键帧", exact: true })).toBeVisible();
 });
