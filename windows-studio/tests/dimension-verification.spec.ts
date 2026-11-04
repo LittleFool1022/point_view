@@ -2,6 +2,9 @@ import {test,expect,type Page} from '@playwright/test';
 import {readFile} from 'node:fs/promises';
 import {unzipSync,strFromU8} from 'fflate';
 
+/** 证据截图写到临时目录，避免普通回归运行覆盖 PR #5 的已提交证据。 */
+const EVIDENCE=process.env.PR5_EVIDENCE_DIR??'/tmp/pv-pr5-evidence';
+
 async function downloaded(page:Page,name:string){const pending=page.waitForEvent('download');await page.getByRole('button',{name,exact:true}).click();return readFile((await(await pending).path())!);}
 
 /** 点击纵向尺寸线中点选中该尺寸，返回面板显示的文字。 */
@@ -46,7 +49,7 @@ test('关键尺寸核验：缺参考仍可导出并标未核验，录入后随�
   await expect(panel).toContainText('全部在容差内');
   await expect(page.locator('.dimension-verify-box summary')).toContainText('均在容差内');
   await page.getByTestId('dimension-verify').scrollIntoViewIfNeeded();
-  await page.screenshot({path:'docs/pr-evidence/cad-dimension-verification/after-verified.png'});
+  await page.screenshot({path:`${EVIDENCE}/after-verified.png`});
   const verified=unzipSync(await downloaded(page,'导出 DXF 成果包'));
   const verification=JSON.parse(strFromU8(verified['survey-drawing/dimension-verification.json']!));
   expect(verification.status).toBe('sample-within-tolerance');
@@ -67,7 +70,7 @@ test('关键尺寸核验：缺参考仍可导出并标未核验，录入后随�
   await expect(page.getByTestId('dimension-verify')).toContainText('核验已过期');
   await expect(page.getByTestId('dimension-verify').getByRole('button',{name:'导出核验报告'})).toHaveCount(0);
   await page.getByTestId('dimension-verify').scrollIntoViewIfNeeded();
-  await page.screenshot({path:'docs/pr-evidence/cad-dimension-verification/after-expired.png'});
+  await page.screenshot({path:`${EVIDENCE}/after-expired.png`});
   expect(errors).toEqual([]);
 });
 

@@ -1,4 +1,5 @@
 import { dimensionEntities, validateDimensions, type CadDimension } from "./dimensions";
+import { DXF_TEXT_LIMIT } from "./dxf";
 import type { PointCloudData } from "../domain/types";
 import type { CadPreviewSource } from "./linking";
 import {
@@ -266,6 +267,10 @@ export interface DrawingValidationReport {
 export const PAPER_SIZE_MM: Record<CadPaperSize, [number, number]> = {
   A0: [1189, 841], A1: [841, 594], A2: [594, 420], A3: [420, 297], A4: [297, 210],
 };
+
+/** 修订标记图层：在图纸/PDF 上圈出被人工几何修订过的图元；不参与 DXF 导出。 */
+export const CAD_REVISION_LAYER: CadLayerName = "TOPO_HIDDEN";
+const CAD_REVISION_CATEGORY = "wall" as const;
 
 const mToMm = (value: number) => value * 1_000;
 const pointMToMm = (point: [number, number]): [number, number] => [mToMm(point[0]), mToMm(point[1])];
@@ -685,6 +690,63 @@ export function applyCadAnnotations(model: DrawingModel, source: CadAnnotation[]
       annotationCount: modelAnnotations.length,
     },
   };
+}
+
+export interface CadRevisionMarkOptions {
+  /** 修订图元编号 → 修订说明（与尺寸、修订量一起写进标题栏复核栏）。 */
+  revisions: Array<{entityId: string; label: string}>;
+  /** 尺寸修订链的指纹短语；为空时只写“几何修订”图例。 */
+  chainNote?: string;
+}
+
+/**
+ * 图纸注记同步：把几何修订写进标题栏复核栏，并在图纸上圈出被修订的图元。
+ * 只追加复核注记，不改任何几何、尺寸或既有标注；同一份图纸重复调用结果一致。
+ */
+export function annotateCadRevisions(model: DrawingModel, options: CadRevisionMarkOptions | undefined): DrawingModel {
+  const next = structuredClone(model);
+  next.entities = next.entities.filter(entity => !entity.metadata?.revisionMark);
+  const title = next.entities.find(entity => entity.layer === "TITLE_BLOCK" && entity.type === "polyline");
+  const titlePoints = title && title.type === "polyline" ? title.points : [];
+  const titleMinX = titlePoints.length ? Math.min(...titlePoints.map(point => point[0])) : next.modelBoundsMm.min[0];
+  const titleMaxX = titlePoints.length ? Math.max(...titlePoints.map(point => point[0])) : next.modelBoundsMm.max[0];
+  const titleMinY = titlePoints.length ? Math.min(...titlePoints.map(point => point[1])) : next.modelBoundsMm.min[1];
+  const titleMaxY = titlePoints.length ? Math.max(...titlePoints.map(point => point[1])) : next.modelBoundsMm.max[1];
+  const height = Math.max(2.5 * scaleDenominator(next.scale), 60);
+  const revisions = options?.revisions ?? [];
+  const revisionText = revisions.length
+    ? `几何修订 ${revisions.length} 项：${revisions.map(item => item.label).join("；").slice(0, DXF_TEXT_LIMIT - 40)}${options?.chainNote ? ` · ${options.chainNote}` : ""}`
+    : "几何修订：无";
+  // 标题栏复核栏只保留一行修订说明，重复注记时以本次为准。
+  next.entities = next.entities.filter(entity => !(entity.layer === "TITLE_BLOCK" && entity.type === "text" && entity.metadata?.titleField === "revision"));
+  next.entities.push({
+    id: "revision-title-note", type: "text", text: revisionText, position: [titleMinX + height, titleMinY + (titleMaxY - titleMinY) * 0.46],
+    heightMm: height * 0.8, layer: "TITLE_BLOCK", category: "text", source: "manual", confidence: "confirmed", metadata: { titleField: "revision", revisionCount: revisions.length },
+  });
+  // 圈出修订图元：按图元包围盒外扩固定边距的矩形框，属于复核注记而不是几何。
+  for (const [index, revision] of revisions.entries()) {
+    const target = next.entities.find(entity => entity.id === revision.entityId);
+    if (!target) continue;
+    const points = target.type === "line" ? [target.start, target.end] : target.type === "polyline" ? target.points : [target.position];
+    if (!points.length) continue;
+    const pad = Math.max(height * 0.6, 25);
+    const minX = Math.min(...points.map(point => point[0])) - pad, maxX = Math.max(...points.map(point => point[0])) + pad;
+    const minY = Math.min(...points.map(point => point[1])) - pad, maxY = Math.max(...points.map(point => point[1])) + pad;
+    next.entities.push({
+      id: `revision-mark-${index + 1}`, type: "polyline", points: rectangle({ minX, minY, maxX, maxY }), closed: true,
+      // 复核注记放 TOPO_HIDDEN（export=false，不写进 DXF），只在预览、图纸 SVG 与 PDF 上可见。
+      layer: CAD_REVISION_LAYER, category: CAD_REVISION_CATEGORY, source: "manual", confidence: "confirmed", metadata: { revisionMark: revision.label, revisionEntityId: revision.entityId },
+    });
+    const labelPoint: [number, number] = [maxX + height * 0.4, maxY];
+    next.entities.push({
+      id: `revision-label-${index + 1}`, type: "text", text: revision.label, position: labelPoint, heightMm: height * 0.8,
+      layer: "TEXT", category: "text", source: "manual", confidence: "confirmed", metadata: { revisionMark: revision.label, revisionEntityId: revision.entityId },
+    });
+  }
+  if (revisions.length && !next.warnings.some(warning => warning.code === "DIMENSION_REVISION")) {
+    next.warnings = [...next.warnings, { code: "DIMENSION_REVISION", severity: "warning", message: `本图有 ${revisions.length} 项人工几何修订（${revisions.map(item => item.label).join("；")}），尺寸已随几何重算，核验与成果包须按新修订重新核验。`, relatedLayer: "TEXT" }];
+  }
+  return next;
 }
 
 export function validateDrawingModel(model: DrawingModel): DrawingValidationReport {

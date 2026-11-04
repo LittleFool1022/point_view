@@ -1,0 +1,773 @@
+{
+  "schemaVersion": "point-view-cad-annotations/1.0.0",
+  "drawingId": "fbc43a04-f035-4418-9d40-2784dea52982",
+  "sourceName": "fixture.pcd",
+  "units": "mm",
+  "sourceCoordinateSystem": "camera_init",
+  "drawingCoordinateSystem": "ORTHOGONAL_WALL_ALIGNED_LOCAL",
+  "view": "top_xy",
+  "paperSize": "A3",
+  "scale": "1:100",
+  "generatedAt": "2026-11-04T07:20:25.472Z",
+  "areaMethod": "room-net-area-not-available",
+  "statistics": {
+    "sourcePointCount": 7332,
+    "observedWallEntities": 4,
+    "inferredWallEntities": 0,
+    "roomCount": 0,
+    "doorCount": 0,
+    "windowCount": 0,
+    "annotationCount": 0
+  },
+  "entities": [
+    {
+      "id": "observed-wall-0001",
+      "category": "wall",
+      "type": "line",
+      "layer": "OBSERVED_WALL",
+      "source": "observed",
+      "confidence": "measured",
+      "geometry": {
+        "start_mm": [
+          0,
+          0
+        ],
+        "end_mm": [
+          8025.4,
+          0
+        ]
+      },
+      "metadata": {
+        "side": "bottom",
+        "wallThicknessMm": 250,
+        "fit": "2d-evidence-map-interval",
+        "evidenceCellSizeMm": 186.04651162790697,
+        "evidencePointCount": 7332
+      }
+    },
+    {
+      "id": "observed-wall-0002",
+      "category": "wall",
+      "type": "line",
+      "layer": "OBSERVED_WALL",
+      "source": "observed",
+      "confidence": "measured",
+      "geometry": {
+        "start_mm": [
+          8000,
+          0
+        ],
+        "end_mm": [
+          8000,
+          6139.53488372093
+        ]
+      },
+      "metadata": {
+        "side": "right",
+        "wallThicknessMm": 250,
+        "fit": "2d-evidence-map-interval",
+        "evidenceCellSizeMm": 186.04651162790697,
+        "evidencePointCount": 7332
+      }
+    },
+    {
+      "id": "observed-wall-0003",
+      "category": "wall",
+      "type": "line",
+      "layer": "OBSERVED_WALL",
+      "source": "observed",
+      "confidence": "measured",
+      "geometry": {
+        "start_mm": [
+          0,
+          6139.53488372093
+        ],
+        "end_mm": [
+          8000,
+          6139.53488372093
+        ]
+      },
+      "metadata": {
+        "side": "top",
+        "wallThicknessMm": 250,
+        "fit": "2d-evidence-map-interval",
+        "evidenceCellSizeMm": 186.04651162790697,
+        "evidencePointCount": 7332
+      }
+    },
+    {
+      "id": "observed-wall-0004",
+      "category": "wall",
+      "type": "line",
+      "layer": "OBSERVED_WALL",
+      "source": "observed",
+      "confidence": "measured",
+      "geometry": {
+        "start_mm": [
+          0,
+          0
+        ],
+        "end_mm": [
+          0,
+          6152.904884
+        ]
+      },
+      "metadata": {
+        "side": "left",
+        "wallThicknessMm": 250,
+        "fit": "2d-evidence-map-interval",
+        "evidenceCellSizeMm": 186.04651162790697,
+        "evidencePointCount": 7332
+      }
+    },
+    {
+      "id": "axis-0007",
+      "category": "axis",
+      "type": "line",
+      "layer": "AXIS",
+      "source": "derived",
+      "confidence": "confirmed",
+      "geometry": {
+        "start_mm": [
+          7440,
+          5179.53488372093
+        ],
+        "end_mm": [
+          7440,
+          5979.53488372093
+        ]
+      }
+    },
+    {
+      "id": "axis-0008",
+      "category": "axis",
+      "type": "line",
+      "layer": "AXIS",
+      "source": "derived",
+      "confidence": "confirmed",
+      "geometry": {
+        "start_mm": [
+          7440,
+          5979.53488372093
+        ],
+        "end_mm": [
+          7296,
+          5723.53488372093
+        ]
+      }
+    },
+    {
+      "id": "axis-0009",
+      "category": "axis",
+      "type": "line",
+      "layer": "AXIS",
+      "source": "derived",
+      "confidence": "confirmed",
+      "geometry": {
+        "start_mm": [
+          7440,
+          5979.53488372093
+        ],
+        "end_mm": [
+          7584,
+          5723.53488372093
+        ]
+      }
+    },
+    {
+      "id": "axis-0010",
+      "category": "axis",
+      "type": "text",
+      "layer": "AXIS",
+      "source": "derived",
+      "confidence": "confirmed",
+      "geometry": {
+        "point_mm": [
+          7568,
+          5904.53488372093
+        ],
+        "height_mm": 250,
+        "rotation_degrees": 0
+      },
+      "text": "+Y"
+    },
+    {
+      "id": "frame-0011",
+      "category": "frame",
+      "type": "polyline",
+      "layer": "FRAME",
+      "source": "derived",
+      "confidence": "confirmed",
+      "geometry": {
+        "points_mm": [
+          [
+            -17443.75,
+            -14680.232558139534
+          ],
+          [
+            24556.25,
+            -14680.232558139534
+          ],
+          [
+            24556.25,
+            15019.767441860466
+          ],
+          [
+            -17443.75,
+            15019.767441860466
+          ]
+        ],
+        "closed": true
+      }
+    },
+    {
+      "id": "frame-0012",
+      "category": "frame",
+      "type": "polyline",
+      "layer": "FRAME",
+      "source": "derived",
+      "confidence": "confirmed",
+      "geometry": {
+        "points_mm": [
+          [
+            -16443.75,
+            -13680.232558139534
+          ],
+          [
+            23556.25,
+            -13680.232558139534
+          ],
+          [
+            23556.25,
+            14019.767441860466
+          ],
+          [
+            -16443.75,
+            14019.767441860466
+          ]
+        ],
+        "closed": true
+      }
+    },
+    {
+      "id": "title-block-0013",
+      "category": "frame",
+      "type": "polyline",
+      "layer": "TITLE_BLOCK",
+      "source": "derived",
+      "confidence": "confirmed",
+      "geometry": {
+        "points_mm": [
+          [
+            5556.25,
+            -13680.232558139534
+          ],
+          [
+            23556.25,
+            -13680.232558139534
+          ],
+          [
+            23556.25,
+            -8680.232558139534
+          ],
+          [
+            5556.25,
+            -8680.232558139534
+          ]
+        ],
+        "closed": true
+      }
+    },
+    {
+      "id": "frame-0014",
+      "category": "frame",
+      "type": "line",
+      "layer": "TITLE_BLOCK",
+      "source": "derived",
+      "confidence": "confirmed",
+      "geometry": {
+        "start_mm": [
+          5556.25,
+          -12430.232558139534
+        ],
+        "end_mm": [
+          23556.25,
+          -12430.232558139534
+        ]
+      }
+    },
+    {
+      "id": "frame-0015",
+      "category": "frame",
+      "type": "line",
+      "layer": "TITLE_BLOCK",
+      "source": "derived",
+      "confidence": "confirmed",
+      "geometry": {
+        "start_mm": [
+          5556.25,
+          -11180.232558139534
+        ],
+        "end_mm": [
+          23556.25,
+          -11180.232558139534
+        ]
+      }
+    },
+    {
+      "id": "frame-0016",
+      "category": "frame",
+      "type": "line",
+      "layer": "TITLE_BLOCK",
+      "source": "derived",
+      "confidence": "confirmed",
+      "geometry": {
+        "start_mm": [
+          5556.25,
+          -9930.232558139534
+        ],
+        "end_mm": [
+          23556.25,
+          -9930.232558139534
+        ]
+      }
+    },
+    {
+      "id": "text-0017",
+      "category": "text",
+      "type": "text",
+      "layer": "TITLE_BLOCK",
+      "source": "derived",
+      "confidence": "confirmed",
+      "geometry": {
+        "point_mm": [
+          5806.25,
+          -9730.232558139534
+        ],
+        "height_mm": 300,
+        "rotation_degrees": 0
+      },
+      "text": "fixture.pcd CAD 平面图",
+      "metadata": {
+        "titleField": "name"
+      }
+    },
+    {
+      "id": "text-0018",
+      "category": "text",
+      "type": "text",
+      "layer": "TITLE_BLOCK",
+      "source": "derived",
+      "confidence": "confirmed",
+      "geometry": {
+        "point_mm": [
+          5806.25,
+          -10880.232558139534
+        ],
+        "height_mm": 250,
+        "rotation_degrees": 0
+      },
+      "text": "图号 PV-CAD-001  比例 1:100  图幅 A3  日期 2026-11-04",
+      "metadata": {
+        "titleField": "info"
+      }
+    },
+    {
+      "id": "text-0019",
+      "category": "text",
+      "type": "text",
+      "layer": "TITLE_BLOCK",
+      "source": "derived",
+      "confidence": "confirmed",
+      "geometry": {
+        "point_mm": [
+          5806.25,
+          -12080.232558139534
+        ],
+        "height_mm": 250,
+        "rotation_degrees": 0
+      },
+      "text": "单位 mm  坐标 ORTHOGONAL_WALL_ALIGNED_LOCAL  制图 观曜测量成果工作台  校核 待审核",
+      "metadata": {
+        "titleField": "coordinate"
+      }
+    },
+    {
+      "id": "text-0020",
+      "category": "text",
+      "type": "text",
+      "layer": "TITLE_BLOCK",
+      "source": "derived",
+      "confidence": "confirmed",
+      "geometry": {
+        "point_mm": [
+          5806.25,
+          -13280.232558139534
+        ],
+        "height_mm": 212.5,
+        "rotation_degrees": 0
+      },
+      "text": "复核图 · 格网 186 mm；拟合估计 ±93 mm；取整 1 mm",
+      "metadata": {
+        "titleField": "quality"
+      }
+    },
+    {
+      "id": "dimension-0005:0",
+      "category": "dimension",
+      "type": "line",
+      "layer": "DIM",
+      "source": "derived",
+      "confidence": "mixed",
+      "geometry": {
+        "start_mm": [
+          0,
+          0
+        ],
+        "end_mm": [
+          0,
+          -800
+        ]
+      },
+      "metadata": {
+        "dimensionId": "dimension-0005"
+      }
+    },
+    {
+      "id": "dimension-0005:1",
+      "category": "dimension",
+      "type": "line",
+      "layer": "DIM",
+      "source": "derived",
+      "confidence": "mixed",
+      "geometry": {
+        "start_mm": [
+          8025.4,
+          0
+        ],
+        "end_mm": [
+          8025.4,
+          -800
+        ]
+      },
+      "metadata": {
+        "dimensionId": "dimension-0005"
+      }
+    },
+    {
+      "id": "dimension-0005:2",
+      "category": "dimension",
+      "type": "line",
+      "layer": "DIM",
+      "source": "derived",
+      "confidence": "mixed",
+      "geometry": {
+        "start_mm": [
+          0,
+          -800
+        ],
+        "end_mm": [
+          8025.4,
+          -800
+        ]
+      },
+      "metadata": {
+        "dimensionId": "dimension-0005"
+      }
+    },
+    {
+      "id": "dimension-0005:3",
+      "category": "dimension",
+      "type": "line",
+      "layer": "DIM",
+      "source": "derived",
+      "confidence": "mixed",
+      "geometry": {
+        "start_mm": [
+          -87.5,
+          -887.5
+        ],
+        "end_mm": [
+          87.5,
+          -712.5
+        ]
+      },
+      "metadata": {
+        "dimensionId": "dimension-0005"
+      }
+    },
+    {
+      "id": "dimension-0005:4",
+      "category": "dimension",
+      "type": "line",
+      "layer": "DIM",
+      "source": "derived",
+      "confidence": "mixed",
+      "geometry": {
+        "start_mm": [
+          7937.9,
+          -887.5
+        ],
+        "end_mm": [
+          8112.9,
+          -712.5
+        ]
+      },
+      "metadata": {
+        "dimensionId": "dimension-0005"
+      }
+    },
+    {
+      "id": "dimension-0005:text",
+      "category": "dimension",
+      "type": "text",
+      "layer": "DIM",
+      "source": "derived",
+      "confidence": "mixed",
+      "geometry": {
+        "point_mm": [
+          4012.7,
+          -625
+        ],
+        "height_mm": 250,
+        "rotation_degrees": 0
+      },
+      "text": "8025",
+      "metadata": {
+        "dimensionId": "dimension-0005"
+      }
+    },
+    {
+      "id": "dimension-0006:0",
+      "category": "dimension",
+      "type": "line",
+      "layer": "DIM",
+      "source": "derived",
+      "confidence": "mixed",
+      "geometry": {
+        "start_mm": [
+          0,
+          0
+        ],
+        "end_mm": [
+          -800,
+          4.898587196589413e-14
+        ]
+      },
+      "metadata": {
+        "dimensionId": "dimension-0006"
+      }
+    },
+    {
+      "id": "dimension-0006:1",
+      "category": "dimension",
+      "type": "line",
+      "layer": "DIM",
+      "source": "derived",
+      "confidence": "mixed",
+      "geometry": {
+        "start_mm": [
+          0,
+          6152.904884
+        ],
+        "end_mm": [
+          -799.9999999999997,
+          6152.904884
+        ]
+      },
+      "metadata": {
+        "dimensionId": "dimension-0006"
+      }
+    },
+    {
+      "id": "dimension-0006:2",
+      "category": "dimension",
+      "type": "line",
+      "layer": "DIM",
+      "source": "derived",
+      "confidence": "mixed",
+      "geometry": {
+        "start_mm": [
+          -800,
+          4.898587196589413e-14
+        ],
+        "end_mm": [
+          -799.9999999999997,
+          6152.904884
+        ]
+      },
+      "metadata": {
+        "dimensionId": "dimension-0006"
+      }
+    },
+    {
+      "id": "dimension-0006:3",
+      "category": "dimension",
+      "type": "line",
+      "layer": "DIM",
+      "source": "derived",
+      "confidence": "mixed",
+      "geometry": {
+        "start_mm": [
+          -712.5,
+          -87.49999999999996
+        ],
+        "end_mm": [
+          -887.5,
+          87.50000000000004
+        ]
+      },
+      "metadata": {
+        "dimensionId": "dimension-0006"
+      }
+    },
+    {
+      "id": "dimension-0006:4",
+      "category": "dimension",
+      "type": "line",
+      "layer": "DIM",
+      "source": "derived",
+      "confidence": "mixed",
+      "geometry": {
+        "start_mm": [
+          -712.4999999999997,
+          6065.404884
+        ],
+        "end_mm": [
+          -887.4999999999997,
+          6240.404884
+        ]
+      },
+      "metadata": {
+        "dimensionId": "dimension-0006"
+      }
+    },
+    {
+      "id": "dimension-0006:text",
+      "category": "dimension",
+      "type": "text",
+      "layer": "DIM",
+      "source": "derived",
+      "confidence": "mixed",
+      "geometry": {
+        "point_mm": [
+          -974.9999999999998,
+          3076.452442
+        ],
+        "height_mm": 250,
+        "rotation_degrees": 90
+      },
+      "text": "6153",
+      "metadata": {
+        "dimensionId": "dimension-0006"
+      }
+    }
+  ],
+  "annotations": [],
+  "dimensions": [
+    {
+      "id": "dimension-0005",
+      "kind": "aligned",
+      "start": [
+        0,
+        0
+      ],
+      "end": [
+        8025.4,
+        0
+      ],
+      "linePoint": [
+        0,
+        -800
+      ],
+      "textHeightMm": 250,
+      "roundingMm": 1,
+      "source": "derived"
+    },
+    {
+      "id": "dimension-0006",
+      "kind": "aligned",
+      "start": [
+        0,
+        0
+      ],
+      "end": [
+        0,
+        6152.904884
+      ],
+      "linePoint": [
+        -800,
+        0
+      ],
+      "textHeightMm": 250,
+      "roundingMm": 1,
+      "source": "derived"
+    }
+  ],
+  "accuracy": {
+    "registrationStatus": "not-provided",
+    "gridResolutionMm": 186.04651162790697,
+    "fittingEstimateMm": 93.02325581395348,
+    "topPlaneToleranceMm": 80,
+    "roundingMm": 1,
+    "sources": [
+      "registration:not-provided",
+      "wall-evidence:xy-vertical-persistence",
+      "fitting:grid-cell/2",
+      "rounding:configured"
+    ]
+  },
+  "warnings": [
+    {
+      "code": "UNIT_CONVERTED_TO_MM",
+      "severity": "info",
+      "message": "点云米制坐标已在 DrawingModel 边界统一转换为毫米。"
+    },
+    {
+      "code": "ROOM_AREA_NOT_AVAILABLE",
+      "severity": "warning",
+      "message": "尚无可靠房间内边界，未生成房间净面积；可见点凸包面积仅作覆盖质控。",
+      "relatedLayer": "TEXT"
+    },
+    {
+      "code": "OPENING_RECOGNITION_NOT_AVAILABLE",
+      "severity": "warning",
+      "message": "当前算法未提供可靠门窗识别，DOOR/WINDOW 图层仅保留人工标注。",
+      "relatedLayer": "DOOR"
+    },
+    {
+      "code": "REGISTRATION_ERROR_NOT_PROVIDED",
+      "severity": "warning",
+      "message": "源数据未提供配准误差，标题栏仅记录格网、拟合与取整误差来源。"
+    },
+    {
+      "code": "DXF_UNICODE_FALLBACK",
+      "severity": "info",
+      "message": "DXF 中文使用 Unicode 转义；旧版 CAD 字体缺失时可能需要替换文字样式。",
+      "relatedLayer": "TEXT"
+    },
+    {
+      "code": "EVIDENCE_MAP_DRIVEN",
+      "severity": "info",
+      "message": "已建立 43×43 XY 多高度证据地图（格网 186 mm，3/6 层持续）；三视图仅使用墙带内 7,332 点。",
+      "relatedLayer": "OBSERVED_WALL"
+    },
+    {
+      "code": "ORTHOGONAL_WALL_FIT",
+      "severity": "info",
+      "message": "墙体证据覆盖 100.0%；严格实测模式未补齐任何无证据缺口。",
+      "relatedLayer": "OBSERVED_WALL"
+    },
+    {
+      "code": "ORTHOGONAL_ALIGNMENT",
+      "severity": "info",
+      "message": "已在三维点云 X/Y 平面按墙面直方图自动旋正 0.00°（方向置信度 22.51），所有投影视图共用该建筑轴线。",
+      "relatedLayer": "AXIS"
+    }
+  ],
+  "software": {
+    "name": "Point View",
+    "version": "Survey Studio 0.10.4",
+    "drawingSchema": "point-view-drawing/1.0.0"
+  }
+}

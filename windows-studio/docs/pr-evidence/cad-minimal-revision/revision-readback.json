@@ -1,0 +1,59 @@
+{
+  "schema": "survey-revision-readback/1",
+  "drawingId": "fbc43a04-f035-4418-9d40-2784dea52982",
+  "revision": 2,
+  "chainSha256": "c092945d9c04a21528cc26f025c2aad645da811024aaaeb8aed77c534e3149a9",
+  "exportedAt": "2026-11-04T07:20:25.496Z",
+  "sourceSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "units": {
+    "drawing": "mm",
+    "rawInsunits": 4
+  },
+  "revisionCount": 2,
+  "reader": {
+    "builtin": {
+      "dimensionCount": 2,
+      "maxDimensionDeviationMm": 0,
+      "maxDimensionTextDeviationMm": 0,
+      "allDimensionsNative": true,
+      "dimensionTextMissing": 0,
+      "textIssues": 0,
+      "nativeCoordinatesMaxDeviationMm": 0
+    }
+  },
+  "dimensions": [
+    {
+      "dimensionId": "dimension-0005",
+      "kind": "aligned",
+      "entityId": "observed-wall-0001",
+      "vertexIndex": 1,
+      "revisionMm": 25.4,
+      "expectedMeasuredMm": 8025.4,
+      "readbackMeasuredMm": 8025.4,
+      "deviationMm": 0,
+      "measuredChangeMm": 25.4,
+      "consistencyResidualMm": 0,
+      "note": "几何修订后尺寸"
+    },
+    {
+      "dimensionId": "dimension-0006",
+      "kind": "aligned",
+      "entityId": "observed-wall-0004",
+      "vertexIndex": 1,
+      "revisionMm": 13.37,
+      "expectedMeasuredMm": 6152.904884,
+      "readbackMeasuredMm": 6152.904884,
+      "deviationMm": 0,
+      "measuredChangeMm": 13.37,
+      "consistencyResidualMm": 0,
+      "note": "几何修订后尺寸"
+    }
+  ],
+  "maxDeviationMm": 0,
+  "consistencyIssues": [],
+  "problems": [],
+  "controls": {
+    "geometryRebuilt": false,
+    "revisionStateCarried": true
+  }
+}

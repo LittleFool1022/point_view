@@ -13,6 +13,7 @@ import {
   type DimensionVerificationRecord,
 } from './domain/dimensionVerification';
 import type {DrawingModel} from '../../src/cad/model';
+import {dimensionEndpointCandidates,linkedEntityIds,type DimensionRevisionState} from './domain/dimensionRevision';
 
 const emptyProvenance:DimensionReferenceProvenance={kind:'independent-survey',method:'',operator:'',measuredAt:'',documentRef:'',instrument:''};
 
@@ -20,11 +21,14 @@ const emptyProvenance:DimensionReferenceProvenance={kind:'independent-survey',me
  * 关键尺寸核验：只对用户选中的图纸尺寸录入或导入独立实测值，
  * 显示偏差与容差区间；缺少独立参考时明确标为未核验，不阻止导出。
  */
-export function DimensionVerificationPanel({model,record,sourceSha256,selectedDimensionId,disabled,onChange,onSelect,onNotice}:{
+export function DimensionVerificationPanel({model,record,sourceSha256,selectedDimensionId,disabled,revision,revisionExpired,onChange,onSelect,onNotice}:{
   model?:DrawingModel;
   record?:DimensionVerificationRecord;
   sourceSha256?:string;
   selectedDimensionId?:string;
+  /** 几何修订链：有修订时核验结论一律过期，集中提示一次。 */
+  revision?:DimensionRevisionState;
+  revisionExpired?:boolean;
   disabled:boolean;
   onChange(record:DimensionVerificationRecord|undefined):void;
   onSelect(id:string):void;
@@ -36,6 +40,9 @@ export function DimensionVerificationPanel({model,record,sourceSha256,selectedDi
   const [provenance,setProvenance]=useState<DimensionReferenceProvenance>({...emptyProvenance});
   const report=model&&record&&sourceSha256?reportForDimensionVerification(model,record,sourceSha256):undefined;
   const expired=!!record&&!report&&dimensionVerificationExpired(model,record,sourceSha256);
+  // 几何修订后不接受“撤销即复用旧结论”：修订链非空时旧核验一律过期，须重新核验。
+  const revised=!!(revision?.changes.length)||!!revisionExpired;
+  const expiredText=revised?'几何已修订，旧核验结论按图纸指纹规则过期，需重新核验后再导出':'核验已过期 · 图纸重建或源件变更后需重新核验';
   const dimensions=model?.dimensions??[];
   const label=(id:string)=>{const index=dimensions.findIndex(d=>d.id===id);return index>=0?`尺寸 ${index+1}`:id;};
   const selected=dimensions.find(d=>d.id===selectedDimensionId);
@@ -81,20 +88,22 @@ export function DimensionVerificationPanel({model,record,sourceSha256,selectedDi
   }
   // 过期结论不得作为核验报告导出；只能重新核验或清除。
   const syntheticNote=report&&report.counts.synthetic?`（另有 ${report.counts.synthetic} 项合成/推算参考）`:'';
-  const statusText=!dimensions.length?'尚未生成尺寸':!record?'未核验 · 缺少独立实测参考':expired?'核验已过期 · 图纸重建或源件变化后需重新核验'
+  const linkedSelected=model&&selected?dimensionEndpointCandidates(model,selected.id):[];
+  const statusText=!dimensions.length?'尚未生成尺寸':!record?'未核验 · 缺少独立实测参考':expired?expiredText
     :!report!.independentReference?`独立尺寸未核验 · 仅有合成/推算参考的 ${report!.results.length} 项比较，不作为实测精度`
     :report!.status==='sample-within-tolerance'?`已核验 ${report!.counts.checked} 项独立实测 · 全部在容差内${syntheticNote}`
     :`已核验 ${report!.counts.checked} 项独立实测 · ${report!.counts.failed} 项超差${syntheticNote}`;
   return <div className="dimension-verify" data-testid="dimension-verify">
-    <p className={`dimension-verify-status ${report?(report.independentReference?(report.status==='sample-within-tolerance'?'ok':'bad'):'unverified'):'unverified'}`} role="status">{statusText}</p>
+    <p className={`dimension-verify-status ${report&&!revised?(report.independentReference?(report.status==='sample-within-tolerance'?'ok':'bad'):'unverified'):'unverified'}`} role="status">{statusText}</p>
     {!record&&dimensions.length>0&&<p className="help">可以照常导出；成果包会标注“独立尺寸未核验”。</p>}
-    {expired&&<p className="help">图纸几何或米/毫米换算已改变，旧结论不再有效，需要重新核验。</p>}
+    {expired&&<p className="help">{revised ? '尺寸端点已按几何修订改动：旧结论不会因撤销而复活，请按当前几何重新录入或导入参考值。' : '图纸几何或米/毫米换算已改变，旧结论不再有效，需要重新核验。'}</p>}
+    {selected&&model&&<p className="help" data-testid="dimension-linked-geometry">{linkedSelected.length?`关联对象：${[...new Set(linkedSelected.map(row=>row.label))].join('、')}（${linkedEntityIds(model,selected.id).length} 个图元）；图纸上已高亮，可在“几何修订”中拖动端点。`:'关联对象：无。该尺寸定义点未落在任何墙线/线段端点上，无法直接改几何。'}</p>}
     <div className="dimension-verify-actions">
       <button disabled={disabled||!(model&&sourceSha256)} onClick={()=>void download('关键尺寸参考-待填写.json',model&&sourceSha256?dimensionReferenceTemplate(model,sourceSha256):{})}>导出参考模板</button>
       <button disabled={disabled||!(model&&sourceSha256)} onClick={()=>fileInput.current?.click()}>导入参考</button>
       <input hidden ref={fileInput} type="file" accept=".json" aria-label="尺寸参考文件" onChange={e=>{void importFile(e.target.files?.[0]);e.target.value='';}}/>
       <button disabled={disabled||!selected} aria-expanded={open} onClick={()=>setOpen(v=>!v)}>{open?'收起录入':selected?'录入选中尺寸':'选中尺寸后录入'}</button>
-      {report&&<button disabled={disabled} onClick={()=>void download('关键尺寸核验报告.json',{...report,reference:record!.reference})}>导出核验报告</button>}
+      {report&&!revised&&<button disabled={disabled} onClick={()=>void download('关键尺寸核验报告.json',{...report,reference:record!.reference})}>导出核验报告</button>}
       {record&&<button disabled={disabled} onClick={()=>onChange(undefined)}>清除核验</button>}
     </div>
     {selected&&<p className="help" data-testid="selected-dimension">选中尺寸 {selected.id} · 图纸测量 {measuredRow?.measuredMm} mm（显示 {measuredRow?.displayedMm} mm）</p>}
@@ -133,7 +142,7 @@ export function DimensionVerificationPanel({model,record,sourceSha256,selectedDi
       </table>
       <p className="help">判定：|图纸测量−独立参考|+不确定度 ≤ 容差；偏差以参考值为零点的对称区间，不把取整显示值当成实测。合成/推算参考只列比较结果，不计入独立实测核验。</p>
     </div>}
-    {record&&expired&&<div className="dimension-verify-results">
+    {record&&(expired||revised)&&<div className="dimension-verify-results">
       <table aria-label="过期核验项"><thead><tr><th>尺寸</th><th>参考 mm</th><th>容差 ±mm</th><th/></tr></thead>
         <tbody>{record.reference.entries.map(e=><tr key={e.dimensionId}><td>{e.dimensionId}</td><td>{e.referenceMm}</td><td>±{e.toleranceMm}</td><td><button aria-label={`删除 ${label(e.dimensionId)} 核验项`} onClick={()=>removeEntry(e.dimensionId)}>×</button></td></tr>)}</tbody></table>
     </div>}
