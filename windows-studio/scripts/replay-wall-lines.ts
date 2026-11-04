@@ -4,6 +4,7 @@
  * 随机种子与 tolerance/参数逐项照抄 fitWallLines，任何时候都应与 fitWallLines 的 segments 一致（脚本自检）。
  */
 import type { PointCloudData } from "../../src/domain/types";
+import { buildWallNetwork } from "../src/pipeline/wallNetwork";
 type P = [number, number];
 export interface WallLineTrace {
   retained: number;
@@ -87,13 +88,8 @@ export function traceWallLines(cloud: PointCloudData) {
     }
     points = points.filter(p => Math.abs((p[0] - best!.a[0]) * best!.uy - (p[1] - best!.a[1]) * best!.ux) > tolerance);
   }
-  for (let i = 0; i < segments.length; i++) for (let j = i + 1; j < segments.length; j++) {
-    const a = segments[i]!, b = segments[j]!, u: P = [a.b[0] - a.a[0], a.b[1] - a.a[1]], v: P = [b.b[0] - b.a[0], b.b[1] - b.a[1]];
-    const cross = u[0] * v[1] - u[1] * v[0]; if (Math.abs(cross) < .15 * distance(a.a, a.b) * distance(b.a, b.b)) continue;
-    const t = ((b.a[0] - a.a[0]) * v[1] - (b.a[1] - a.a[1]) * v[0]) / cross, p: P = [a.a[0] + u[0] * t, a.a[1] + u[1] * t];
-    const ak = distance(a.a, p) < distance(a.b, p) ? "a" : "b", bk = distance(b.a, p) < distance(b.b, p) ? "a" : "b";
-    if (distance(a[ak], p) <= .12 && distance(b[bk], p) <= .12) { a[ak] = [...p]; b[bk] = [...p]; }
-  }
   trace.segments = segments;
-  return { trace, segments, evidenceCells, retained, cell, bounds: { min: [minX, minY, minZ] as [number, number, number], max: [maxX, maxY, maxZ] as [number, number, number] } };
+  // 与 fitWallLines 一致：拟合候选直接交给墙网级连接（沿轴延长、T 形插节点、门口不连）。
+  const network = buildWallNetwork(segments);
+  return { trace, rawSegments: segments, network, segments: network.segments.map(({ a, b, support, rmsM }) => ({ a, b, support, rmsM })), evidenceCells, retained, cell, bounds: { min: [minX, minY, minZ] as [number, number, number], max: [maxX, maxY, maxZ] as [number, number, number] } };
 }
