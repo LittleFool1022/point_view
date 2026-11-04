@@ -477,7 +477,7 @@ Windows0.9.3原生回放：真实84,272,711字节/2,106,775点，受控1MiB预�
 - `survey-dimension-verification/1` 只保存输入、图纸几何指纹（尺寸编号、类型、定义点）与记录时的米/毫米换算；报告在读取与导出时重算。图纸重建、尺寸被编辑或删除、视图切换、换算变化、源件变化时记录失效，界面与成果包都不得沿用旧结论。
 - 模板只列出可标注尺寸、参考值与容差为空；导入拒绝未填写、错图纸、错源件与非正容差。
 
-`src/cad/dxf.ts:scanDxfBytes`（`scanDrawingReadback` 为其包装）与 `validateCadDxfReadback`：回读实际导出字节，检查 `$INSUNITS=4`、原生 DIMENSION 数量、标注测量值(42)与图纸几何的偏差；文字按导出实体身份（XDATA）比较预期与实际，缺失、截断、改字分别报告；标注块文字通过块名→块记录句柄映射定位，找不到即报缺失；单条文字超过 240 字符时在写出前拒绝而不截断。导出前发现差异时集中提示一次并写入复核清单。
+`src/cad/dxf.ts:scanDxfBytes`（`scanDrawingReadback` 为其包装）与 `validateCadDxfReadback`：回读实际导出字节，检查 `$INSUNITS=4`、原生 DIMENSION 数量、标注测量值(42)与图纸几何的偏差；文字按导出实体身份（XDATA）比较预期与实际，只比较实际会导出的图层（`export=true`），缺失、截断、改字分别报告；标注块文字通过块名→块记录句柄映射定位，找不到即报缺失；单条文字超过 240 字符时在写出前拒绝而不截断。导出前发现差异时集中提示一次并写入复核清单。
 
 `domain/delivery.ts`：成果包新增 `survey-drawing/dimension-verification.json`（报告或明确的 `not-verified` 记录），复核清单的 `checks.independentFieldDimensions` 取报告结论，缺少或过期的核验保留 `not-verified`。PDF 仍与 DXF 由同一图幅检查决定是否生成。
 

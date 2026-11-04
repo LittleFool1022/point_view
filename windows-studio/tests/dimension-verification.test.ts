@@ -287,3 +287,26 @@ it('合成参考的界面与导出提示区分来源：追加独立项不改变�
   expect(nextReport.results.find(r=>r.entry.dimensionId==='d-skew')!.entry.provenance!.kind).toBe('independent-survey');
   expect(nextReport.counts).toMatchObject({checked:1,synthetic:1});
 });
+
+it('非导出图层文字不参与回读比对；导出图层文字缺失仍报错',async()=>{
+  const model=await metresModel();
+  expect(model.layers.find(l=>l.name==='TOPO_HIDDEN')!.export).toBe(false);
+  const withHidden=structuredClone(model);
+  withHidden.entities.push({id:'hidden-label',type:'text',text:'隐藏标注',position:[0,0],heightMm:250,layer:'TOPO_HIDDEN',category:'text',source:'manual',confidence:'confirmed'});
+  // 导出器不会写出非导出图层，回读不得因此报告缺失。
+  expect(new TextDecoder().decode(exportCadDxf(withHidden))).not.toContain('hidden-label');
+  const scan=scanDrawingReadback(withHidden);
+  expect(scan.textIssues).toEqual([]);
+  expect(scan.chinesePreserved).toBe(true);
+  expect(validateCadDxfReadback(withHidden).dimensionCount).toBe(model.dimensions!.length);
+  // 导出图层上的文字仍按身份核对：删除实体文字即报缺失。
+  // 标题栏等导出图层文字（夹具的默认文字都在标题栏/轴网图层上）。
+  const exportedText=withHidden.entities.find(e=>e.type==='text'&&e.layer!=='TOPO_HIDDEN')!;
+  const lines=new TextDecoder().decode(exportCadDxf(withHidden)).split('\r\n');
+  const idIndex=lines.findIndex(line=>line===exportedText.id);
+  expect(idIndex).toBeGreaterThan(0);
+  const tampered=[...lines];tampered[idIndex-1]='0';tampered[idIndex]='';
+  const bytes=new TextEncoder().encode(tampered.join('\r\n'));
+  expect(scanDxfBytes(withHidden,bytes).textIssues.some(i=>i.kind==='missing'&&i.entityId===exportedText.id)).toBe(true);
+  expect(()=>validateCadDxfReadback(withHidden,1e-6,bytes)).toThrow('导出文字与图纸不一致');
+});

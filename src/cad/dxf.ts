@@ -205,8 +205,11 @@ export function scanDxfBytes(model:DrawingModel,bytes:Uint8Array):CadDxfReadback
     }
   }
   // 模型空间/纸空间文字按实体身份比较；缺失、截断、改字都记录。
-  // 标注显示块内的文字由块内核对负责，这里只比较模型/纸空间实体。
-  const expectedTexts=model.entities.filter(e=>e.type==="text"&&!e.metadata?.dimensionId).map(e=>({id:e.id,text:(e as {text:string}).text}));
+  // 只比较实际会导出的实体：导出器仅写 export=true 的图层，标注显示块内文字由块内核对负责。
+  const exportedLayers=new Set(model.layers.filter(layer=>layer.export).map(layer=>layer.name));
+  const expectedTexts=model.entities
+    .filter(e=>e.type==="text"&&!e.metadata?.dimensionId&&exportedLayers.has(e.layer))
+    .map(e=>({id:e.id,text:(e as {text:string}).text}));
   const actualById=new Map<string,string>();
   for(const text of texts)if(text.id&&!actualById.has(text.id))actualById.set(text.id,decodeDxfText(text.raw));
   const textIssues:CadTextReadbackIssue[]=[];
