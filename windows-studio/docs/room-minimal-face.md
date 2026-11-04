@@ -15,8 +15,8 @@
 | 未改动 | 墙线拟合与端点拼接（`pipeline/wallLines.ts`）、去重/连接规则、CAD/IFC/交付包结构、门窗识别（仍不自动识别门窗） |
 
 **依赖**：基线为 `agent/wall-room-closure-diagnosis-95aa01866af8`（PR #8 评审分支，含 #8 的夹具与诊断脚本），
-其上叠加已合入 main 的 `agent/import-unit-range-check-aa8f0aa73cab`（PR #3）。「墙网连接规则」（#11）与
-「墙候选去重合并」（#10）尚未提交分支，本 PR 的合并顺序应在其之后；两者落地后只需重跑复跑脚本，
+其上叠加已合入 main 的 `agent/import-unit-range-check-aa8f0aa73cab`（PR #3）。「墙候选去重合并」（#10，当前 PR #13）与
+「墙网连接规则」（#11，尚无分支）尚未合入，本 PR 的合并顺序应在其之后；两者落地后只需重跑复跑脚本，
 房间数会随之改变（见 §5）。
 
 ## 2. 提取口径
