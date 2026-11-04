@@ -3,7 +3,20 @@ import {createCadSheet,restyleCadDrawing} from "../../src/cad/sheet";
 import { appendDimension, type CadDimension } from "../../src/cad/dimensions";
 import { scanDrawingReadback } from "../../src/cad/dxf";
 import { DimensionVerificationPanel } from "./DimensionVerificationPanel";
+import { DimensionRevisionPanel } from "./DimensionRevisionPanel";
 import { reportForDimensionVerification, type DimensionVerificationRecord } from "./domain/dimensionVerification";
+import {
+  applyDimensionEndpointRevision,
+  createRevisionState,
+  dimensionEndpointCandidates,
+  dimensionMeasurementMm,
+  pointFromRevisionAmount,
+  preserveRevisionState,
+  revisionChainSignature,
+  type DimensionRevisionState,
+} from "./domain/dimensionRevision";
+import { createRevisionDelivery, revisionChainSha256, type IndependentReadbackFile } from "./domain/revisionReadback";
+import { annotateCadRevisions } from "../../src/cad/model";
 import type {ElevationOptions,WallElevation} from "./pipeline/wallElevation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FolderOpen, FileDown, Ruler, Building2, Image, PackageCheck, Layers, Play, X } from "lucide-react";
@@ -61,6 +74,15 @@ export function App() {
   const [dimensionKind,setDimensionKind]=useState<CadDimension['kind']>('aligned'),[dimensionMode,setDimensionMode]=useState<CadDimension['kind']>();
   const [cadHistory,setCadHistory]=useState<{undo:CadDimension[][];redo:CadDimension[][]}>({undo:[],redo:[]});
   const [dimensionVerification,setDimensionVerification]=useState<DimensionVerificationRecord>();
+  /** 几何修订链：最近一次修改前的图纸、修订记录与快照指纹；撤销与过期提示都依据它。 */
+  const [revisionState,setRevisionState]=useState<DimensionRevisionState|undefined>(undefined);
+  const [revisionActive,setRevisionActive]=useState<{entityId:string;vertexIndex:number}>();
+  /** 撤销后仍可恢复（重做）最近一次修订。 */
+  const [revisionRedo,setRevisionRedo]=useState<{after:DrawingModel;afterState:DimensionRevisionState}|undefined>();
+  const [verificationExpiredByRevision,setVerificationExpiredByRevision]=useState(false);
+  const revisionUndo=useRef<{before:DrawingModel;after:DrawingModel;state:DimensionRevisionState;afterState:DimensionRevisionState;signature:string;expired:boolean}|undefined>(undefined);
+  const revisionExpiryNotice=useRef<string|undefined>(undefined);
+  const independentReadback=useRef<IndependentReadbackFile|undefined>(undefined);
   const [selectedDimensionId,setSelectedDimensionId]=useState<string>();
   const [drawing, setDrawing] = useState<DrawingModel>(), [projection, setProjection] = useState<CadProjection>("xy"), [units, setUnits] = useState<SourceUnit>("m");
   const [importCheck, setImportCheck] = useState<ImportCheck>(), [unitConfirmed, setUnitConfirmed] = useState(false);
@@ -106,6 +128,7 @@ export function App() {
     setEditHistory({ undo: (next.clips ?? []).map((_, i) => next.clips!.slice(0, i)), redo: [] });
     setSource(next); setCloud(decoded.cloud); setImportCheck(check); setUnitConfirmed(false); setUnits(next.units);
     setDrawing(undefined); setCadHistory({undo:[],redo:[]});setDimensionMode(undefined);setDimensionVerification(undefined);setSelectedDimensionId(undefined);setAnnotations([]); setPlacing(undefined); setStale(false); setDirty(true); setView("drawing");
+    setRevisionState(undefined); revisionUndo.current=undefined; setRevisionRedo(undefined); setRevisionActive(undefined); setVerificationExpiredByRevision(false); revisionExpiryNotice.current=undefined; independentReadback.current=undefined;
     const count = decoded.cloud.sourcePointCount ?? decoded.cloud.visible.length;
     setNotice(`已导入 ${next.name} · ${count.toLocaleString()} 点 · 显示 ${decoded.cloud.visible.length.toLocaleString()} 点${next.synthetic ? " · 合成示例，非实测" : ""}`);
   }
@@ -382,7 +405,17 @@ export function App() {
       if (projection !== "xy") { setNotice("模型派生图当前支持 XY 平面，请切回平面视图后更新。"); return; }
       modelDrawing(derived.buildingLevelId!, true); return;
     }
-    void action("提取墙体并生成工程图", async () => { const model = await request<DrawingModel>({ action: "drawing", source, projection, settings }); setDrawing(annotateSurveyDrawing(model, annotations)); setStale(false); setDirty(true); setNotice("工程图已生成，可复核图层并添加标注。门窗识别尚未接入。"); });
+    void action("提取墙体并生成工程图", async () => {
+      const model = await request<DrawingModel>({ action: "drawing", source, projection, settings });
+      // 重新生成会替换几何：修订链保留为“曾经修订过”的记录，让旧核验、旧成果包与旧回读都判定过期。
+      const carried = revisionState?.changes.length ? preserveRevisionState(model, revisionState) : model;
+      const next = annotateSurveyDrawing(carried, annotations);
+      setRevisionActive(undefined); revisionUndo.current=undefined; revisionExpiryNotice.current=undefined;
+      setDrawing(next); setStale(false); setDirty(true);
+      setNotice(next.warnings.some(warning=>warning.code==='DIMENSION_REVISIONS_CARRIED')
+        ? `工程图已重新生成；此前 ${revisionState!.changes.length} 项几何修订已作废，旧核验与成果包过期。`
+        : "工程图已生成，可复核图层并添加标注。门窗识别尚未接入。");
+    });
   }
   function changeDimensions(next:CadDimension[],mode:'edit'|'undo'|'redo'='edit') {
     if(!drawing||busy||stale)return;
@@ -400,6 +433,70 @@ export function App() {
     if(!drawing||!dimensionMode)return;
     const scale=Number(settings.scale.split(':')[1])||100;
     changeDimensions([...(drawing.dimensions??[]),{id:crypto.randomUUID(),kind:dimensionMode,start,end,linePoint,textHeightMm:2.5*scale,roundingMm:settings.roundingMm,source:'manual'}]);
+  }
+  /** 几何修订后核验只集中提示一次：写入状态栏，避免每次操作重复打扰。 */
+  useEffect(()=>{if(revisionExpiryNotice.current){setNotice(current=>`${current} 核验已过期，需重新核验。`);revisionExpiryNotice.current=undefined;}},[drawing]);
+  /** 撤销几何修订：恢复几何与尺寸值，重新导出仍使用这一修订的几何。 */
+  function undoCadRevision() {
+    if(!drawing||busy||stale||!revisionUndoRef()) return setNotice("没有可撤销的几何修订。");
+    const undo=revisionUndoRef()!;
+    if(revisionChainSignature(revisionState??{changes:[],createdAt:''})!==undo.signature){
+      return setNotice("几何修订记录与当前图纸不一致，无法撤销；可重新生成工程图后继续。");
+    }
+    if(dimensionVerification&&!verificationExpiredByRevision&&!window.confirm("撤销几何修订会把被修订的尺寸改回修改前的几何；已登记的尺寸核验结论将被标记过期，需要重新核验。是否继续？"))return;
+    setDrawing(undo.before);
+    setRevisionRedo({after:undo.after,afterState:undo.afterState});
+    setRevisionState(undo.state.changes.length?undo.state:undefined);
+    setVerificationExpiredByRevision(undo.expired||!!dimensionVerification);
+    revisionUndo.current=undefined; setRevisionActive(undefined);
+    setDirty(true);
+    const dim=undo.before.dimensions?.find(d=>d.id===undo.afterState.changes.at(-1)?.dimensionId);
+    setNotice(dim?`已撤销最近一次几何修订：${dim.id} 恢复为 ${dimensionMeasurementMm(dim).toFixed(3)} mm（未取整）。`:"已撤销最近一次几何修订。");
+  }
+  function revisionUndoRef(){return revisionUndo.current;}
+  /** 重做最近一次被撤销的修订：几何与尺寸值回到修订后，过期提示保持。 */
+  function redoCadRevision() {
+    if(!revisionRedo||busy||stale)return setNotice("没有可重做的几何修订。");
+    setDrawing(revisionRedo.after); setRevisionState(revisionRedo.afterState); setRevisionRedo(undefined);
+    setDirty(true); setNotice("已重做最近一次几何修订。");
+  }
+  /** 提交一次端点修订：几何、尺寸定义点与尺寸图元同步更新，并记录修订量。 */
+  function commitEndpointRevision(entityId:string,vertexIndex:number,point:[number,number]) {
+    if(!drawing||!selectedDimensionId||busy||stale)return;
+    try{
+      const result=applyDimensionEndpointRevision(drawing,selectedDimensionId,{entityId,vertexIndex,point});
+      const after=annotateSurveyDrawing(result.model,annotations);
+      const afterState=createRevisionState([...(revisionState?.changes??[]),result.delta]);
+      const expired=!!dimensionVerification;
+      revisionUndo.current={before:drawing,after,state:revisionState??createRevisionState([]),afterState,signature:revisionChainSignature(afterState),expired};
+      setDrawing(after); setRevisionState(afterState); setRevisionActive(undefined); setDirty(true);
+      if(expired&&!verificationExpiredByRevision){
+        setVerificationExpiredByRevision(true);
+        revisionExpiryNotice.current=`几何已修订（${result.label}，修订量 ${result.delta.revisionMm.toFixed(3)} mm，尺寸 ${result.delta.beforeMeasuredMm.toFixed(3)} → ${result.delta.afterMeasuredMm.toFixed(3)} mm），已有尺寸核验结论按图纸指纹规则过期，需要重新核验。`;
+      }
+      const unit=`${result.measuredMm.toFixed(3)} mm（显示 ${result.displayedMm} mm）`;
+      setNotice(`已修订 ${result.label} 端点：尺寸随几何重算为 ${unit}${revisionExpiryNotice.current?"；核验已过期":""}。`);
+    }catch(error){setNotice(error instanceof Error?error.message:String(error));}
+  }
+  /** 输入数值修订：修订量沿尺寸方向（正值加长），毫米制。 */
+  function reviseByAmount(amountMm:number) {
+    if(!drawing||!selectedDimensionId)return;
+    const candidate=dimensionEndpointCandidates(drawing,selectedDimensionId)[0];
+    if(!candidate)return setNotice("选中尺寸没有关联墙线/线段端点，无法直接改几何。");
+    const dimension=drawing.dimensions!.find(d=>d.id===selectedDimensionId)!;
+    try{commitEndpointRevision(candidate.entityId,candidate.vertexIndex,pointFromRevisionAmount(dimension,candidate.current,amountMm));}
+    catch(error){setNotice(error instanceof Error?error.message:String(error));}
+  }
+  /** 载入独立读取器（如 ezdxf）的 DXF 回读报告；下一次导出与内置回读分列记录。 */
+  async function loadIndependentReadback(file?:File){
+    if(!file)return;
+    try{
+      if(file.size>8*1024*1024)throw Error('独立回读报告超过 8 MiB。');
+      const parsed=JSON.parse(await file.text()) as IndependentReadbackFile;
+      if(typeof parsed?.reader!=='string'||!Array.isArray(parsed.dimensions))throw Error('不是本工具的独立 DXF 回读报告。');
+      independentReadback.current=parsed;
+      setNotice(`已载入独立读取器报告（${parsed.reader}），下一次导出会与内置回读分列记录。`);
+    }catch(error){setNotice(error instanceof Error?error.message:'独立回读报告读取失败。');}
   }
   function changeAnnotations(next: CadAnnotation[]) { setAnnotations(next); if (drawing) setDrawing(annotateSurveyDrawing(drawing, next)); setDirty(true); }
   function updateSettings(next:Partial<CadDrawingSettings>) {
@@ -432,14 +529,19 @@ export function App() {
     void action("打包工程图", async () => {
       const issues=preflightReadback(drawing);
       if(issues.length&&!window.confirm(`导出前回读发现 ${issues.length} 项差异：\n${issues.join('\n')}\n\n仍要继续导出并写入复核清单吗？`))return;
-      const result = await createSurveyDelivery(drawing, source!,window.surveyDesktop?.renderPdf,{dimensionVerification,blockingIssues:issues});
-      const report=dimensionVerification?reportForDimensionVerification(drawing,dimensionVerification,readBackSourceId(drawing)):undefined;
+      const revision=revisionState?.changes.length??0, chainSha256=await revisionChainSha256(revisionState);
+      // 成果包绑定同一图纸修订：DXF、图纸、PDF、核验与回读报告都由这一份快照生成。
+      // 图纸/PDF 上注明几何修订（标题栏复核栏 + 修订图元标记），DXF 几何与尺寸不变。
+      const marked=annotateCadRevisions(drawing, revisionState?.changes.length?{revisions:revisionState.changes.map(change=>({entityId:change.entityId,label:`${change.dimensionId} ${change.revisionMm>0?'+':''}${change.revisionMm} mm`})),chainNote:`第 ${revision} 修订`}:undefined);
+      const result = await createRevisionDelivery({model:marked,source:source!,revision,chainSha256,sourceSha256:readBackSourceId(drawing),state:revisionState,dimensionVerification,blockingIssues:issues,independent:independentReadback.current,controls:{geometryRebuilt:false,revisionStateCarried:true},renderPdf:window.surveyDesktop?.renderPdf});
+      const report=dimensionVerification?reportForDimensionVerification(result.stamped,dimensionVerification,readBackSourceId(drawing)):undefined;
       // 只有独立实测项才能把成果标为已核验；合成/推算参考保留比较结果但仍是未核验。
       const verified=!!report?.independentReference;
       if(!(await saveFile(result.archiveName,result.archive)))return setNotice("已取消保存。");
       const readback=issues.length?`回读有 ${issues.length} 项差异，已写入复核清单。`:"";
+      const revisionNote=revision?`图纸第 ${revision} 修订（${result.report.maxDeviationMm.toFixed(6)} mm 最大回读偏差）。`:"";
       const unverifiedReason=dimensionVerification?(report?'仅有合成/推算参考，不作为独立实测精度':'核验记录与当前图纸不一致，已排除旧结论'):'未录入独立实测参考值';
-      setNotice(verified?`DXF、图纸、尺寸核验与校验清单已保存。${readback}`:`成果已保存；独立尺寸未核验（${unverifiedReason}）。${readback}`);
+      setNotice(verified?`DXF、图纸、尺寸核验与回读报告已保存。${revisionNote}${readback}`:`成果已保存；独立尺寸未核验（${unverifiedReason}）。${revisionNote}${readback}`);
     });
   }
   function exportPdf() {
@@ -457,10 +559,10 @@ export function App() {
       let saved = false;
       if (pairedReview) await verifyPairedReview(pairedReview, source);
       if (source.native && window.surveyDesktop) {
-        const state = { source: { name: source.name, units: source.units, synthetic: source.synthetic, clips: source.clips ?? [], deviceReceipt: source.deviceReceipt }, pairedReview, activeKeyframePage, building, accuracy, dimensionVerification, renderScene, drawing, drawingStale:stale, annotations, projection, settings };
+        const state = { source: { name: source.name, units: source.units, synthetic: source.synthetic, clips: source.clips ?? [], deviceReceipt: source.deviceReceipt }, pairedReview, activeKeyframePage, building, accuracy, dimensionVerification, dimensionRevision:revisionState, renderScene, drawing, drawingStale:stale, annotations, projection, settings };
         saved = (await window.surveyDesktop.saveProject(source.native.token, state)).saved;
       } else {
-        const bytes = await encodeProject({ source, pairedReview, building, accuracy, dimensionVerification, renderScene, drawing, drawingStale:stale, annotations, projection, settings });
+        const bytes = await encodeProject({ source, pairedReview, building, accuracy, dimensionVerification, dimensionRevision:revisionState, renderScene, drawing, drawingStale:stale, annotations, projection, settings });
         saved = await saveFile("测量工程.pvplan", bytes);
       }
       if (saved) { setDirty(false); setNotice("工程已保存，包含原始点云、关键帧、复核记录和出图参数，可换机打开。"); } else setNotice("已取消保存。");
@@ -488,7 +590,10 @@ export function App() {
         const bytes = f.data ?? await f.file?.arrayBuffer(); if (!bytes) throw Error("工程数据缺失。");
         p = await decodeProject(bytes);
       }
-      await importSource(p.source); setPairedReview(p.pairedReview); setActiveKeyframePage(p.activeKeyframePage);  setBuilding(p.building); setAccuracy(p.accuracy); setRenderScene(p.renderScene??{...DEFAULT_RENDER_SCENE}); setProjection(p.projection); setSettings({ ...DEFAULT_CAD_DRAWING_SETTINGS, ...p.settings }); setAnnotations(p.annotations); setDrawing(p.drawing);setDimensionVerification(p.dimensionVerification);setStale(p.drawingStale??false); setUnits(p.source.units); setDirty(false); setNotice("测量工程已恢复。");
+      await importSource(p.source); setPairedReview(p.pairedReview); setActiveKeyframePage(p.activeKeyframePage);  setBuilding(p.building); setAccuracy(p.accuracy); setRenderScene(p.renderScene??{...DEFAULT_RENDER_SCENE}); setProjection(p.projection); setSettings({ ...DEFAULT_CAD_DRAWING_SETTINGS, ...p.settings }); setAnnotations(p.annotations); setDrawing(p.drawing);setDimensionVerification(p.dimensionVerification);
+      setRevisionState(p.dimensionRevision?.changes.length?p.dimensionRevision:undefined); revisionUndo.current=undefined; setRevisionRedo(undefined); setRevisionActive(undefined); revisionExpiryNotice.current=undefined;
+      setVerificationExpiredByRevision(!!(p.dimensionRevision?.changes.length&&p.dimensionVerification));
+      setStale(p.drawingStale??false); setUnits(p.source.units); setDirty(false); setNotice("测量工程已恢复。");
     });
   }
   function cancel() { brushEpoch.current++; semanticSequence.current++; semanticClient.current?.dispose(); semanticClient.current=undefined; deliverySequence.current++; cancelIfc.current?.(); void window.surveyDesktop?.cancel(); worker.current?.terminate(); worker.current = undefined; pending.current?.reject(Error("已取消分析，原始文件和现有工程保留；下次分析会重新读取完整源点。")); pending.current = undefined; }
@@ -576,6 +681,7 @@ export function App() {
         <div className="toolbar-status">
           {source?.synthetic && <span className="status-pill warning">合成示例</span>}
           {stale && <span className="status-pill stale">图纸待更新</span>}
+          {!!revisionState?.changes.length && <span className="status-pill stale" data-testid="revision-pill">几何修订 {revisionState.changes.length} 项</span>}
           {focusPane !== "none" && <button className="layout-reset-chip" onClick={() => setFocusPane("none")}>恢复双栏对照</button>}
         </div>
         <div className="toolbar-group">
@@ -640,7 +746,7 @@ export function App() {
             </div>
           </header>
           <div className="drawing-canvas">
-            {drawing ? <CadPreview lightMode dimensionMode={dimensionMode} selectedDimensionId={selectedDimensionId} onSelectedDimensionChange={setSelectedDimensionId} onMoveDimensionLine={moveDimensionLine} onCreateDimension={addDimension} onDeleteDimension={id=>drawing&&changeDimensions(drawing.dimensions?.filter(d=>d.id!==id)??[])} model={drawing} stale={stale} projection={projection} annotations={annotations} placingAnnotation={placing} selectedAnnotationId={selectedAnnotationId} onPlaceAnnotation={point => { if (!placing || stale || busy) return; changeAnnotations([...annotations, { ...placing, id: crypto.randomUUID(), x: point[0], y: point[1], coordinateSpace: "drawing-mm", projection }]); setPlacing(undefined); }} onMoveAnnotation={(id, p) => { if (stale || busy) return; changeAnnotations(annotations.map(a => a.id === id ? { ...a, x: p[0], y: p[1], coordinateSpace: "drawing-mm" } : a)); }} onDeleteAnnotation={id => { if (!stale && !busy) changeAnnotations(annotations.filter(a => a.id !== id)); }} onSelectedAnnotationChange={setSelectedAnnotationId}/> : <div className="cad-preview-empty">
+            {drawing ? <CadPreview lightMode revision={{draggable:true,candidates:selectedDimensionId?dimensionEndpointCandidates(drawing,selectedDimensionId).map(row=>({entityId:row.entityId,vertexIndex:row.vertexIndex,current:row.current,label:row.label})):[],active:revisionActive,disabled:!!busy||stale,onActiveChange:setRevisionActive,onCommit:commitEndpointRevision}} dimensionMode={dimensionMode} selectedDimensionId={selectedDimensionId} onSelectedDimensionChange={setSelectedDimensionId} onMoveDimensionLine={moveDimensionLine} onCreateDimension={addDimension} onDeleteDimension={id=>drawing&&changeDimensions(drawing.dimensions?.filter(d=>d.id!==id)??[])} model={drawing} stale={stale} projection={projection} annotations={annotations} placingAnnotation={placing} selectedAnnotationId={selectedAnnotationId} onPlaceAnnotation={point => { if (!placing || stale || busy) return; changeAnnotations([...annotations, { ...placing, id: crypto.randomUUID(), x: point[0], y: point[1], coordinateSpace: "drawing-mm", projection }]); setPlacing(undefined); }} onMoveAnnotation={(id, p) => { if (stale || busy) return; changeAnnotations(annotations.map(a => a.id === id ? { ...a, x: p[0], y: p[1], coordinateSpace: "drawing-mm" } : a)); }} onDeleteAnnotation={id => { if (!stale && !busy) changeAnnotations(annotations.filter(a => a.id !== id)); }} onSelectedAnnotationChange={setSelectedAnnotationId}/> : <div className="cad-preview-empty">
               <div className="empty-card">
                 <Ruler size={22}/>
                 <strong>暂无工程图纸</strong>
@@ -673,9 +779,10 @@ export function App() {
               <button disabled={!cadHistory.undo.length||stale||!!busy} onClick={()=>changeDimensions(cadHistory.undo.at(-1)!,'undo')}>撤销尺寸</button>
               <button disabled={!cadHistory.redo.length||stale||!!busy} onClick={()=>changeDimensions(cadHistory.redo.at(-1)!,'redo')}>重做尺寸</button>
             </div>
+            <DimensionRevisionPanel model={drawing} selectedDimensionId={selectedDimensionId} state={revisionState} active={revisionActive} disabled={!!busy||stale||!drawing} expiredNotice={verificationExpiredByRevision?revisionExpiryNotice.current:undefined} canUndo={!!revisionUndo.current} canRedo={!!revisionRedo} onActive={setRevisionActive} onRevise={reviseByAmount} onUndo={undoCadRevision} onRedo={redoCadRevision} onLoadReadback={file=>void loadIndependentReadback(file)} readbackLoaded={!!independentReadback.current} onNotice={setNotice}/>
             <details className="dimension-verify-box" data-testid="dimension-verify-box">
               <summary>关键尺寸核验{(()=>{const report=drawing&&dimensionVerification?reportForDimensionVerification(drawing,dimensionVerification,readBackSourceId(drawing)):undefined;return report?report.independentReference?` · ${report.counts.failed?`${report.counts.failed} 项超差`:'均在容差内'}`:' · 仅合成参考':'';})()}</summary>
-              <DimensionVerificationPanel model={drawing} record={dimensionVerification} sourceSha256={drawing?readBackSourceId(drawing):undefined} selectedDimensionId={selectedDimensionId} disabled={!!busy||stale||!drawing} onChange={r=>{setDimensionVerification(r);setDirty(true);}} onSelect={id=>{setSelectedDimensionId(id);setDimensionMode(undefined);}} onNotice={setNotice}/>
+              <DimensionVerificationPanel model={drawing} record={dimensionVerification} sourceSha256={drawing?readBackSourceId(drawing):undefined} selectedDimensionId={selectedDimensionId} disabled={!!busy||stale||!drawing} revision={drawing?revisionState:undefined} revisionExpired={verificationExpiredByRevision} onChange={r=>{setDimensionVerification(r);setDirty(true);setVerificationExpiredByRevision(false);revisionExpiryNotice.current=undefined;}} onSelect={id=>{setSelectedDimensionId(id);setDimensionMode(undefined);}} onNotice={setNotice}/>
             </details>
           </div>
           <div className="inspector-section">

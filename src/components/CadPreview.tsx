@@ -15,7 +15,23 @@ export interface CadPreviewLink {
   onVisibleEntitiesChange(ids: string[]): void;
 }
 
+/** 尺寸几何修订：选中尺寸后，拖动其关联图元的端点（或改数值）后交回外部提交。 */
+export interface DimensionRevisionHandlers {
+  /** 图纸上可直接拖动修订的端点（命中测试优先于选择/放置标注）。 */
+  draggable?: boolean;
+  /** 选中尺寸关联的图元端点；空数组时界面明确提示无关联对象。 */
+  candidates: ReadonlyArray<{ entityId: string; vertexIndex: number; current: CadPoint2; label: string }>;
+  /** 正在修订的端点（点“修订端点”进入）；undefined 时画布不进入端点模式。 */
+  active?: { entityId: string; vertexIndex: number };
+  disabled?: boolean;
+  onActiveChange?(active: { entityId: string; vertexIndex: number } | undefined): void;
+  /** 端点松开鼠标后给出新图纸毫米坐标，由外部换算修订量、提交并记录。 */
+  onCommit(entityId: string, vertexIndex: number, point: CadPoint2): void;
+}
+
 interface CadPreviewProps {
+  /** 尺寸修订手柄：只对被选中尺寸的关联端点生效。 */
+  revision?: DimensionRevisionHandlers;
   dimensionMode?: CadDimension['kind'];
   onCreateDimension?(start:CadPoint2,end:CadPoint2,linePoint:CadPoint2):void;
   onDeleteDimension?(id:string):void;
@@ -48,6 +64,7 @@ type DisplayAnnotation = { id: string; annotation: CadAnnotation; pointMm: Point
 type CanvasDrag =
   | { mode: "pan"; x: number; y: number; moved: boolean }
   | { mode: "annotation"; id: string; x: number; y: number; moved: boolean; pointMm: Point }
+  | { mode: "revision"; x: number; y: number; entityId: string; vertexIndex: number; pointMm: Point; moved: boolean }
   | { mode: "place" | "dimension"; x: number; y: number; moved: boolean };
 
 const CAD_LAYER_LABELS: Record<CadLayerName, string> = {
@@ -89,6 +106,7 @@ function annotationScreenRect(annotation: DisplayAnnotation, point: Point) {
 }
 
 export function CadPreview({
+  revision,
   dimensionMode, onCreateDimension, onDeleteDimension,
   selectedDimensionId, onSelectedDimensionChange, onMoveDimensionLine,
   lightMode = false,
@@ -124,6 +142,8 @@ export function CadPreview({
   const [layersOpen, setLayersOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string>();
   const [annotationDrag, setAnnotationDrag] = useState<{ id: string; pointMm: Point }>();
+  /** 修订端点的拖动预览：松开鼠标才提交，Esc 或失焦丢弃。 */
+  const [revisionDrag, setRevisionDrag] = useState<{ entityId: string; vertexIndex: number; pointMm: Point }>();
   const [visibility, setVisibility] = useState<Partial<Record<CadLayerName, boolean>>>({});
 
   useEffect(() => {
@@ -159,6 +179,9 @@ export function CadPreview({
     center[0] + (point[0] - size.width / 2 - pan[0]) / scale,
     center[1] - (point[1] - size.height / 2 - pan[1]) / scale,
   ];
+
+  /** 尺寸修订手柄：插件显式进入端点模式，或开启了可选端点拖动。 */
+  const revisionHandles = !!revision && !revision.disabled && !stale && (!!revision.active || !!revision.draggable);
 
   const displayAnnotations = useMemo<DisplayAnnotation[]>(() => {
     if (!model) return [];
@@ -296,7 +319,22 @@ export function CadPreview({
       context.fillText(annotation.annotation.text, rect.left + 10, rect.top + rect.height / 2, rect.width - 18);
     }
     context.setLineDash([]);
-  }, [bounds, center, displayAnnotations, model, pan, scale, selectedAnnotationId, selectedId, showGrid, shownEntities, size, visibility, link?.enabled, link?.highlightedIds, link?.drawingPoint, lightMode]);
+    // 尺寸几何修订：关联端点画可拖动手柄；拖动中实时预览新位置。
+    for (const candidate of revisionHandles ? revision!.candidates : []) {
+      const activeHandle = revision!.active && candidate.entityId === revision!.active.entityId && candidate.vertexIndex === revision!.active.vertexIndex;
+      const point = revisionDrag && revisionDrag.entityId === candidate.entityId && revisionDrag.vertexIndex === candidate.vertexIndex ? revisionDrag.pointMm : candidate.current;
+      if (point) {
+        const [sx, sy] = toScreen(point);
+        context.fillStyle = lightMode ? "#b3541e" : "#F4D4A2";
+        context.strokeStyle = lightMode ? "#ffffff" : "#101214";
+        context.lineWidth = 2;
+        context.beginPath(); context.arc(sx, sy, activeHandle || revisionHandles ? 6 : 4, 0, Math.PI * 2); context.fill(); context.stroke();
+        if (activeHandle) {
+          context.beginPath(); context.moveTo(sx - 13, sy); context.lineTo(sx + 13, sy); context.moveTo(sx, sy - 13); context.lineTo(sx, sy + 13); context.strokeStyle = lightMode ? "#b3541e" : "#F4D4A2"; context.lineWidth = 1; context.stroke();
+        }
+      }
+    }
+  }, [bounds, center, displayAnnotations, model, pan, scale, selectedAnnotationId, selectedId, showGrid, shownEntities, size, visibility, link?.enabled, link?.highlightedIds, link?.drawingPoint, lightMode, revision?.active, revision?.candidates, revision?.disabled, revisionHandles, revisionDrag]);
 
   const findAnnotation = (point: Point): DisplayAnnotation | undefined => {
     for (const annotation of [...displayAnnotations].reverse()) {
@@ -327,6 +365,20 @@ export function CadPreview({
     return best?.entity;
   };
 
+  /** 图纸上命中尺寸（尺寸线、界线、刻度或尺寸文字）即返回该尺寸编号。 */
+  const findDimension = (point: Point): string | undefined => {
+    let best: { dimensionId: string; distance: number } | undefined;
+    for (const entity of shownEntities) {
+      const dimensionId = entity.metadata?.dimensionId as string | undefined;
+      if (!dimensionId || entity.type === "point") continue;
+      let distance = Infinity;
+      if (entity.type === "line") distance = distanceToSegment(point, toScreen(entity.start), toScreen(entity.end));
+      if (entity.type === "text") distance = Math.hypot(point[0] - toScreen(entity.position)[0], point[1] - toScreen(entity.position)[1]);
+      if (distance <= 10 && (!best || distance < best.distance)) best = { dimensionId, distance };
+    }
+    return best?.dimensionId;
+  };
+
   const onPointerDown = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     if (event.button !== 0) return;
     cancelAnimationFrame(focusFrameRef.current);
@@ -334,10 +386,26 @@ export function CadPreview({
     event.currentTarget.setPointerCapture(event.pointerId);
     const rect = event.currentTarget.getBoundingClientRect();
     const point: Point = [event.clientX - rect.left, event.clientY - rect.top];
+    // 修订手柄优先：命中关联端点即进入拖动，不触发平移或选图元。
+    if (revisionHandles && model) {
+      const hit = revision!.candidates.find(row => Math.hypot(toScreen(row.current)[0] - point[0], toScreen(row.current)[1] - point[1]) <= 12);
+      if (hit) {
+        // 直接拖动选中尺寸的关联端点：不必先进入端点模式。
+        revision!.onActiveChange?.({ entityId: hit.entityId, vertexIndex: hit.vertexIndex });
+        dragRef.current = { mode: "revision", x: event.clientX, y: event.clientY, entityId: hit.entityId, vertexIndex: hit.vertexIndex, pointMm: fromScreen(point), moved: false };
+        return;
+      }
+    }
     if ((dimensionMode || lineMove) && !stale) { dragRef.current={mode:"dimension",x:event.clientX,y:event.clientY,moved:false};return; }
     if (placingAnnotation) {
-      dragRef.current = { mode: "place", x: event.clientX, y: event.clientY, moved: false };
-      return;
+      // 点在图元（墙线或尺寸）上时按选择处理；空白处才放置标注，避免标注层挡住尺寸选择。
+      // 命中尺寸时按尺寸选择：尺寸线与墙线常在同一点重叠。
+      const onDimension = findDimension(point);
+      const onEndpoint = revision?.candidates.some(row => Math.hypot(toScreen(row.current)[0] - point[0], toScreen(row.current)[1] - point[1]) <= 10);
+      if (!findEntity(point) && !onDimension && !onEndpoint) {
+        dragRef.current = { mode: "place", x: event.clientX, y: event.clientY, moved: false };
+        return;
+      }
     }
     const annotation = findAnnotation(point);
     if (annotation) {
@@ -370,6 +438,10 @@ export function CadPreview({
       drag.pointMm = [drag.pointMm[0] + dx / scale, drag.pointMm[1] - dy / scale];
       setAnnotationDrag({ id: drag.id, pointMm: drag.pointMm });
     }
+    if (drag.mode === "revision") {
+      drag.pointMm = [drag.pointMm[0] + dx / scale, drag.pointMm[1] - dy / scale];
+      setRevisionDrag({ entityId: drag.entityId, vertexIndex: drag.vertexIndex, pointMm: drag.pointMm });
+    }
   };
   const onPointerUp = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     const drag = dragRef.current; dragRef.current = undefined;
@@ -384,17 +456,24 @@ export function CadPreview({
       const next=[...dimensionPoints,p];
       if(next.length===3){onCreateDimension?.(next[0]!,next[1]!,next[2]!);setDimensionPoints([]);setSnapPoint(undefined);}else setDimensionPoints(next);
     }
+    if (drag.mode === "revision") {
+      if (drag.moved) revision?.onCommit(drag.entityId, drag.vertexIndex, drag.pointMm);
+      setRevisionDrag(undefined);
+    }
     if (drag.mode === "place" && !drag.moved) onPlaceAnnotation(fromScreen(point));
     if (drag.mode === "annotation") {
       if (drag.moved) onMoveAnnotation(drag.id, drag.pointMm);
       setAnnotationDrag(undefined);
     }
     if (drag.mode === "pan" && !drag.moved) {
-      const id = findEntity(point)?.id;
-      setSelectedId(id);
-      if (link?.enabled) link.onSelectEntity(id);
+      // 尺寸命中时优先选中该尺寸：尺寸数与墙线在同一点重叠，按图元最近会永远选中墙线。
+      const entityHit = findEntity(point);
+      const dimensionHit = findDimension(point) ?? (entityHit?.metadata?.dimensionId as string | undefined);
+      setSelectedId(dimensionHit ? undefined : entityHit?.id);
+      // 选中的尺寸需在图纸上看得见：属性栏与修订入口都按这个尺寸显示。
+      onSelectedDimensionChange?.(dimensionHit);
+      if (link?.enabled) link.onSelectEntity(entityHit?.id);
       onSelectedAnnotationChange(undefined);
-      onSelectedDimensionChange?.(model?.entities.find(entity => entity.id === id)?.metadata?.dimensionId as string | undefined);
     }
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   };
@@ -419,13 +498,17 @@ export function CadPreview({
   })) ?? [];
   const visibleLayerCount = layerRows.filter(({ layer }) => visibility[layer.name] !== false).length;
 
+  const revisionRank: "none" | "some" = revision && selectedDimensionId && revision.candidates.length ? "some" : "none";
+  const showRevisionLink = !!revision && !!selectedDimensionId && !!model?.dimensions?.some(dimension => dimension.id === selectedDimensionId);
   if (!model) return <div className="cad-preview-empty"><ScanLine /><strong>把你的空间变成图纸</strong><span>点击下方“生成图纸”，先看看空间的{projection === "xy" ? "俯视" : projection === "xz" ? "前视" : "侧视"}轮廓。</span></div>;
 
   return <div className="cad-preview-shell" data-dimension-step={dimensionPoints.length}>
+    {revision?.active&&<div className="cad-dimension-hint" role="status" data-testid="dimension-revision-hint">拖动高亮端点修改几何，尺寸随几何重算 · Esc 退出</div>}
     {lineMove&&<div className="cad-dimension-hint" role="status">点击图纸放置尺寸线位置，尺寸数值随几何保持不变 · Esc 退出</div>}
     {dimensionMode&&<div className="cad-dimension-hint">{dimensionPoints.length===0?'选择尺寸起点':dimensionPoints.length===1?'选择尺寸终点':'选择尺寸线位置'} · Esc 退出</div>}
     {[...dimensionPoints,...(snapPoint?[snapPoint]:[])].map((p,i)=>{const xy=toScreen(p);return <i key={i} className="cad-snap-point" style={{left:xy[0],top:xy[1]}}/>;})}
     {selectedDimension&&<div className="cad-dimension-properties" data-testid="cartesian-dimension-properties"><span>图纸几何尺寸 {dimensionMeasurement(selectedDimension).toFixed(3)} mm</span>{onMoveDimensionLine&&<button aria-label="改尺寸线位置" title="再点一次图纸放置尺寸线位置，用于避开已有标注" onClick={()=>setLineMove(selectedDimension.id)}>改尺寸线位置</button>}{onDeleteDimension&&<button onClick={()=>onDeleteDimension(selectedDimension.id)}>删除尺寸</button>}</div>}
+    {revision&&!revision.disabled&&showRevisionLink&&<div className="cad-revision-hint" role="status" data-testid="dimension-revision-link">{revisionRank==="none"?"选中尺寸没有可修订的关联墙线，无法直接改几何":`选中尺寸关联 ${revision.candidates.length} 个端点 · ${[...new Set(revision.candidates.map(row=>row.label))].join("、")}`}</div>}
     <div className={`cad-preview-stage ${placingAnnotation ? "placing-annotation" : ""}`} ref={stageRef}>
       <div className="cad-preview-toolbar" role="toolbar" aria-label="CAD 预览工具">
         <div className="cad-view-switch"><button className={!layoutMode ? "active" : ""} aria-pressed={!layoutMode} title="空间轮廓" onClick={() => { setLayoutMode(false); resetView(); }}>轮廓</button><button className={layoutMode ? "active" : ""} aria-pressed={layoutMode} title="完整图纸" onClick={() => { setLayoutMode(true); resetView(); }}>图纸</button></div>
@@ -447,13 +530,14 @@ export function CadPreview({
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        onPointerCancel={() => { dragRef.current = undefined; setAnnotationDrag(undefined); }}
+        onPointerCancel={() => { dragRef.current = undefined; setAnnotationDrag(undefined); setRevisionDrag(undefined); }}
         onPointerLeave={() => { hoverRef.current = undefined; link?.onHoverEntity(undefined); }}
         onKeyDown={(event) => {
           if ((event.key === "Delete" || event.key === "Backspace") && selectedAnnotationId) {
             event.preventDefault();
             onDeleteAnnotation(selectedAnnotationId);
           }
+          if (event.key === "Escape" && revision?.active) { event.preventDefault(); setRevisionDrag(undefined); revision.onActiveChange?.(undefined); }
         }}
         onWheel={onWheel}
       />

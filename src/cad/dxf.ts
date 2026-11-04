@@ -126,6 +126,8 @@ export interface CadDxfReadback {
   maxDimensionDeviationMm:number;
   /** 原生标注测量值与图纸显示的取整文字是否一致。 */
   maxDimensionTextDeviationMm:number;
+  /** 每个原生标注按 XDATA 身份回读的测量值，供逐项偏差与修订核对。 */
+  dimensions?: Array<{dimensionId:string;measuredMm:number}>;
   chinesePreserved:boolean;
   /** 按导出实体身份比较预期与实际中文（或整段文字）的结果；缺失、截断、改字都计入。 */
   textIssues:CadTextReadbackIssue[];
@@ -238,6 +240,7 @@ export function scanDxfBytes(model:DrawingModel,bytes:Uint8Array):CadDxfReadback
   return {
     insunits,unitsMm:insunits===4,measurement,dimensionCount,allDimensionsNative,dimensionTextMissing,
     maxDimensionDeviationMm,maxDimensionTextDeviationMm,
+    dimensions:dims.map(dim=>({dimensionId:dim.id,measuredMm:Number((dim.measured??NaN).toFixed(6))})),
     chinesePreserved:chineseIssues.length===0,textIssues,chineseLost:chineseIssues.length,
   };
 }

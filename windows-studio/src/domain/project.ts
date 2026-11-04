@@ -10,8 +10,9 @@ import { assertPairedReview, verifyPairedReview, type PairedReview, type PairedF
 import { assertDeviceReceipt } from "./device";
 import { assertAccuracyRecord, reportForAccuracyRecord, type AccuracyRecord } from "./accuracy";
 import { assertDimensionVerificationRecord, type DimensionVerificationRecord } from "./dimensionVerification";
+import type { DimensionRevisionState } from "./dimensionRevision";
 export interface SurveySource extends SourceInput { clips?: ClipRule[]; units: SourceUnit; synthetic: boolean; /** 浏览器工程内计算出的源件 SHA-256；桌面句柄哈希优先。 */ bytesSha256?: string }
-export interface SurveyProject { source: SurveySource; dimensionVerification?:DimensionVerificationRecord; accuracy?:AccuracyRecord; pairedReview?: PairedReview; activeKeyframePage?:string; pairedReviewIndex?:PairedFrameReference[]; building?: BuildingModel; renderScene?:RenderSceneSettings; drawing?: DrawingModel; drawingStale?:boolean; annotations: CadAnnotation[]; projection: CadProjection; settings: Partial<CadDrawingSettings> }
+export interface SurveyProject { source: SurveySource; dimensionVerification?:DimensionVerificationRecord; /** 几何修订链：撤销、过期提示与导出回读绑定共用。 */ dimensionRevision?:DimensionRevisionState; accuracy?:AccuracyRecord; pairedReview?: PairedReview; activeKeyframePage?:string; pairedReviewIndex?:PairedFrameReference[]; building?: BuildingModel; renderScene?:RenderSceneSettings; drawing?: DrawingModel; drawingStale?:boolean; annotations: CadAnnotation[]; projection: CadProjection; settings: Partial<CadDrawingSettings> }
 const LIMIT = 256 * 1024 * 1024;
 async function hash(bytes: ArrayBuffer) { return [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map(x => x.toString(16).padStart(2, "0")).join(""); }
 export async function encodeProject(project: SurveyProject): Promise<Uint8Array> {
@@ -19,7 +20,7 @@ export async function encodeProject(project: SurveyProject): Promise<Uint8Array>
   const bytes = project.source.bytes ?? await project.source.file?.arrayBuffer();
   if (!bytes) throw Error("工程缺少源数据。");
   if (project.pairedReview) await verifyPairedReview(project.pairedReview, project.source);
-  const manifest = { schema: "survey-project/1", source: { name: project.source.name, units: project.source.units, synthetic: project.source.synthetic, clips: project.source.clips, sha256: await hash(bytes), deviceReceipt: project.source.deviceReceipt }, accuracy:project.accuracy, projection: project.projection, settings: project.settings, annotations: project.annotations, drawing: project.drawing, drawingStale:project.drawingStale, dimensionVerification: project.dimensionVerification, building: project.building, renderScene: project.renderScene, pairedReview: project.pairedReview };
+  const manifest = { schema: "survey-project/1", source: { name: project.source.name, units: project.source.units, synthetic: project.source.synthetic, clips: project.source.clips, sha256: await hash(bytes), deviceReceipt: project.source.deviceReceipt }, accuracy:project.accuracy, projection: project.projection, settings: project.settings, annotations: project.annotations, drawing: project.drawing, drawingStale:project.drawingStale, dimensionVerification: project.dimensionVerification, dimensionRevision: project.dimensionRevision, building: project.building, renderScene: project.renderScene, pairedReview: project.pairedReview };
   if(project.accuracy){assertAccuracyRecord(project.accuracy);if(project.building)reportForAccuracyRecord(project.building,project.accuracy);}
   if(manifest.source.deviceReceipt)assertDeviceReceipt(manifest.source.deviceReceipt,manifest.source);
   return zipSync({ "project.json": strToU8(JSON.stringify(manifest)), "source.bin": new Uint8Array(bytes) });
@@ -56,5 +57,5 @@ export async function decodeProject(buffer: ArrayBuffer): Promise<SurveyProject>
   const source = { name: m.source.name, units: m.source.units, synthetic: m.source.synthetic, clips: m.source.clips, deviceReceipt: m.source.deviceReceipt, bytes };
   if(source.deviceReceipt)assertDeviceReceipt(source.deviceReceipt,{name:source.name,sha256:m.source.sha256,size:bytes.byteLength});
   if(m.pairedReview)await verifyPairedReview(m.pairedReview,source);
-  return { source, dimensionVerification:m.dimensionVerification, accuracy:m.accuracy, pairedReview:m.pairedReview, building: m.building, renderScene:m.renderScene, drawing: m.drawing, drawingStale:m.drawingStale, annotations: m.annotations, projection: m.projection, settings: m.settings };
+  return { source, dimensionVerification:m.dimensionVerification, dimensionRevision:m.dimensionRevision, accuracy:m.accuracy, pairedReview:m.pairedReview, building: m.building, renderScene:m.renderScene, drawing: m.drawing, drawingStale:m.drawingStale, annotations: m.annotations, projection: m.projection, settings: m.settings };
 }
