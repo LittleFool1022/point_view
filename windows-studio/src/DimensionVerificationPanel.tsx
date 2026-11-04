@@ -54,22 +54,23 @@ export function DimensionVerificationPanel({model,record,sourceSha256,selectedDi
       if(file.size>4*1024*1024)throw Error('尺寸参考文件超过4MiB。');
       const reference=validateImportedDimensionReference(JSON.parse(await file.text()),model,sourceSha256);
       onChange(createDimensionVerificationRecord(model,reference));
-      const result=assessDimensionReferences(model,reference);
-      onNotice(`已核验 ${result.length} 项关键尺寸，${result.filter(r=>!r.withinTolerance).length} 项超差。`);
+      const result=assessDimensionReferences(model,reference),independent=result.filter(r=>r.independentReference);
+      const synthetic=result.length-independent.length;
+      onNotice(independent.length?`已核验 ${independent.length} 项独立实测关键尺寸，${independent.filter(r=>!r.withinTolerance).length} 项超差${synthetic?`；另有 ${synthetic} 项合成/推算参考，不作为独立实测精度`:''}。`:`已导入 ${result.length} 项合成/推算参考，仅保留比较结果，独立尺寸仍为未核验。`);
     }catch(error){onNotice(error instanceof Error?error.message:'尺寸参考读取失败。');}
   }
-  /** 录入一条选中尺寸的独立参考值，逐项追加，保持少量操作。 */
+  /** 录入一条选中尺寸的参考值，逐项追加；来源记在该项上，沿用条目保持原来源。 */
   function recordSelected(){
     if(!model||!selected||!sourceSha256)return;
     try{
-      const entry=dimensionReferenceEntry(selected.id,draft);
       const provenanceNow={...provenance};
       if(!provenanceNow.method.trim()||!provenanceNow.operator.trim()||!provenanceNow.measuredAt||!provenanceNow.documentRef.trim())throw Error('请先填写测量方法、人员、日期和依据文件。');
+      const entry=dimensionReferenceEntry(selected.id,{...draft,provenance:provenanceNow});
       const entries=[...(record?.reference.entries??[]).filter(e=>e.dimensionId!==selected.id),entry];
       const reference:DimensionReference={schema:'survey-dimension-reference/1',drawingId:model.drawingId,view:model.view,sourceSha256,provenance:provenanceNow,entries};
       onChange(createDimensionVerificationRecord(model,reference));
       setDraft({referenceMm:'',toleranceMm:draft.toleranceMm,uncertaintyMm:draft.uncertaintyMm,note:''});
-      onNotice(`已记录 ${label(entry.dimensionId)} 的独立参考值 ${entry.referenceMm} mm（容差 ±${entry.toleranceMm} mm）。`);
+      onNotice(`已记录 ${label(entry.dimensionId)} 的${provenanceNow.kind==='synthetic'?'合成/推算参考':'独立实测参考值'} ${entry.referenceMm} mm（容差 ±${entry.toleranceMm} mm）${provenanceNow.kind==='synthetic'?'；合成参考不计入独立实测核验。':'。'}`);
     }catch(error){onNotice(error instanceof Error?error.message:'参考值录入失败。');}
   }
   function removeEntry(dimensionId:string){
@@ -79,9 +80,13 @@ export function DimensionVerificationPanel({model,record,sourceSha256,selectedDi
     try{onChange(createDimensionVerificationRecord(model,{...record.reference,entries}));}catch(error){onNotice(error instanceof Error?error.message:'删除失败。');}
   }
   // 过期结论不得作为核验报告导出；只能重新核验或清除。
-  const statusText=!dimensions.length?'尚未生成尺寸':!record?'未核验 · 缺少独立实测参考':expired?'核验已过期 · 图纸重建或源件变化后需重新核验':report!.status==='sample-within-tolerance'?`已核验 ${report!.counts.checked} 项 · 全部在容差内`:`已核验 ${report!.counts.checked} 项 · ${report!.counts.failed} 项超差`;
+  const syntheticNote=report&&report.counts.synthetic?`（另有 ${report.counts.synthetic} 项合成/推算参考）`:'';
+  const statusText=!dimensions.length?'尚未生成尺寸':!record?'未核验 · 缺少独立实测参考':expired?'核验已过期 · 图纸重建或源件变化后需重新核验'
+    :!report!.independentReference?`独立尺寸未核验 · 仅有合成/推算参考的 ${report!.results.length} 项比较，不作为实测精度`
+    :report!.status==='sample-within-tolerance'?`已核验 ${report!.counts.checked} 项独立实测 · 全部在容差内${syntheticNote}`
+    :`已核验 ${report!.counts.checked} 项独立实测 · ${report!.counts.failed} 项超差${syntheticNote}`;
   return <div className="dimension-verify" data-testid="dimension-verify">
-    <p className={`dimension-verify-status ${report?(report.status==='sample-within-tolerance'?'ok':'bad'):'unverified'}`} role="status">{statusText}</p>
+    <p className={`dimension-verify-status ${report?(report.independentReference?(report.status==='sample-within-tolerance'?'ok':'bad'):'unverified'):'unverified'}`} role="status">{statusText}</p>
     {!record&&dimensions.length>0&&<p className="help">可以照常导出；成果包会标注“独立尺寸未核验”。</p>}
     {expired&&<p className="help">图纸几何或米/毫米换算已改变，旧结论不再有效，需要重新核验。</p>}
     <div className="dimension-verify-actions">
@@ -116,17 +121,17 @@ export function DimensionVerificationPanel({model,record,sourceSha256,selectedDi
     {report&&<div className="dimension-verify-results">
       <table aria-label="关键尺寸核验结果">
         <thead><tr><th>尺寸</th><th>图纸 mm</th><th>参考 mm</th><th>偏差 mm</th><th>容差 ±mm</th><th>结论</th><th/></tr></thead>
-        <tbody>{report.results.map(row=><tr key={row.entry.dimensionId} className={row.withinTolerance?'ok':'bad'}>
+        <tbody>{report.results.map(row=><tr key={row.entry.dimensionId} className={row.independentReference?(row.withinTolerance?'ok':'bad'):'warn'}>
           <td><button className="link-button" onClick={()=>onSelect(row.entry.dimensionId)}>{label(row.entry.dimensionId)}</button></td>
           <td>{row.measuredMm}（显示 {row.displayedMm}）</td>
           <td>{row.entry.referenceMm}</td>
           <td>{row.deviationMm>0?'+':''}{row.deviationMm}</td>
           <td>±{row.entry.toleranceMm}{row.entry.uncertaintyMm?` +u${row.entry.uncertaintyMm}`:''}</td>
-          <td>{row.withinTolerance?'在容差内':'超差'}</td>
+          <td>{row.independentReference?(row.withinTolerance?'在容差内':'超差'):'合成参考·不计入'}</td>
           <td><button aria-label={`删除 ${label(row.entry.dimensionId)} 核验项`} onClick={()=>removeEntry(row.entry.dimensionId)}>×</button></td>
         </tr>)}</tbody>
       </table>
-      <p className="help">判定：|图纸测量−独立参考|+不确定度 ≤ 容差；偏差以参考值为零点的对称区间，不把取整显示值当成实测。</p>
+      <p className="help">判定：|图纸测量−独立参考|+不确定度 ≤ 容差；偏差以参考值为零点的对称区间，不把取整显示值当成实测。合成/推算参考只列比较结果，不计入独立实测核验。</p>
     </div>}
     {record&&expired&&<div className="dimension-verify-results">
       <table aria-label="过期核验项"><thead><tr><th>尺寸</th><th>参考 mm</th><th>容差 ±mm</th><th/></tr></thead>

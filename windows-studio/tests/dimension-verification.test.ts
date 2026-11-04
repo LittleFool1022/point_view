@@ -1,6 +1,6 @@
 import {expect,it} from 'vitest';
 import {appendDimension,dimensionEntities,type CadDimension} from '../../src/cad/dimensions';
-import {exportCadDxf,scanDrawingReadback,validateCadDxfReadback} from '../../src/cad/dxf';
+import {exportCadDxf,scanDrawingReadback,scanDxfBytes,validateCadDxfReadback} from '../../src/cad/dxf';
 import {restyleCadDrawing} from '../../src/cad/sheet';
 import {decodeSource,generateDrawing} from '../src/pipeline/analysis';
 import {demoRoom} from '../src/domain/demo';
@@ -170,4 +170,120 @@ it('非正交结构不会被取整改写掩盖：零交叉或改文字都判超�
   const row=measureDimension(forged,{id:'x',dimensionId:'d-ortho',referenceMm:7990,toleranceMm:1,uncertaintyMm:0,note:''});
   expect(row.measuredMm).toBe(8000);expect(row.withinTolerance).toBe(false);
   expect(meterGeometry.every(Number.isFinite)).toBe(true);
+});
+
+const syntheticProvenance={...provenance,kind:'synthetic' as const,method:'按图纸自身推算',documentRef:'合成夹具'};
+
+it('合成参考不写成独立实测通过：复核清单保持未核验，结果单独保留',async()=>{
+  const model=await metresModel();
+  const mixed=reference(model,[['d-ortho',8000,.5],['d-skew',Math.hypot(8000,6139.53488372093),.01]]);
+  mixed.entries[1]!.provenance=syntheticProvenance;
+  const record=createDimensionVerificationRecord(model,mixed);
+  const report=reportForDimensionVerification(model,record,sha)!;
+  expect(report.independentReference).toBe(true);
+  expect(report.counts).toMatchObject({checked:1,failed:0,synthetic:1});
+
+  expect(report.results.find(r=>r.entry.dimensionId==='d-skew')!.independentReference).toBe(false);
+  const source={name:'fixture.pcd',bytes:new TextEncoder().encode('fixture').buffer as ArrayBuffer,units:'m' as const,synthetic:true,bytesSha256:sha};
+  const {unzipSync,strFromU8}=await import('fflate');
+  const mixedReview=JSON.parse(strFromU8(unzipSync((await createSurveyDelivery(model,source,undefined,{dimensionVerification:record})).archive)['survey-drawing/review.json']!));
+  expect(mixedReview.checks.independentFieldDimensions).toBe('sample-within-tolerance');
+  expect(mixedReview.checks.syntheticDimensionCheck).toMatchObject({checked:1,failed:0,result:'sample-within-tolerance'});
+  // 全部为合成参考：报告中 status 为未核验，复核清单不得标为独立实测通过。
+  const onlySynthetic:DimensionReference={...mixed,entries:mixed.entries.filter(e=>e.provenance?.kind==='synthetic')};
+  const syntheticRecord=createDimensionVerificationRecord(model,onlySynthetic);
+  const syntheticReport=reportForDimensionVerification(model,syntheticRecord,sha)!;
+  expect(syntheticReport.status).toBe('not-verified');
+  expect(syntheticReport.independentReference).toBe(false);
+  expect(syntheticReport.counts).toMatchObject({checked:0,synthetic:1});
+  const syntheticReview=JSON.parse(strFromU8(unzipSync((await createSurveyDelivery(model,source,undefined,{dimensionVerification:syntheticRecord})).archive)['survey-drawing/review.json']!));
+  expect(syntheticReview.checks.independentFieldDimensions).toBe('not-verified');
+  expect(syntheticReview.checks.syntheticDimensionCheck.result).toBe('sample-within-tolerance');
+  expect(syntheticReview.checks.syntheticDimensionCheck.reason).toContain('合成');
+});
+
+it('混合来源保存重开不改变各项来源；追加独立项不改记沿用的合成条目',async()=>{
+  const model=await metresModel();
+  const mixed=reference(model,[['d-ortho',8000,.5]]);
+  mixed.entries[0]!.provenance=syntheticProvenance;
+  const source={name:'fixture.pcd',bytes:demoRoom(),units:'m' as const,synthetic:true,bytesSha256:sha};
+  const reopened=await decodeProject((await encodeProject({source,annotations:[],settings:{},drawing:model,projection:'xy',dimensionVerification:createDimensionVerificationRecord(model,mixed)})).slice().buffer as ArrayBuffer);
+  expect(reopened.dimensionVerification!.reference.entries[0]!.provenance!.kind).toBe('synthetic');
+  // 面板追加独立项的行为：新项带独立来源，沿用项保留合成来源。
+  const appended=dimensionReferenceEntry('d-skew',{referenceMm:'10084.338778',toleranceMm:'1',provenance});
+  const entries=[...reopened.dimensionVerification!.reference.entries.filter(e=>e.dimensionId!=='d-skew'),appended];
+  const next=createDimensionVerificationRecord(model,{...reopened.dimensionVerification!.reference,provenance,entries});
+  const report=reportForDimensionVerification(model,next,sha)!;
+  expect(report.results.find(r=>r.entry.dimensionId==='d-ortho')!.independentReference).toBe(false);
+  expect(report.results.find(r=>r.entry.dimensionId==='d-skew')!.independentReference).toBe(true);
+  expect(report.counts).toMatchObject({checked:1,synthetic:1});
+});
+
+it('回读按实体身份比较文字：缺失、截断、改字都报错，超长文字在写出前拒绝',async()=>{
+  const model=await metresModel();
+  expect(scanDrawingReadback(model).textIssues).toEqual([]);
+  const longText='测'.repeat(241);
+  const withLong=structuredClone(model);
+  withLong.entities.push({id:'long-text',type:'text',text:longText,position:[0,0],heightMm:250,layer:'TEXT',category:'text',source:'manual',confidence:'confirmed'});
+  // 超出单条文字上限时写出阶段直接拒绝，不截断。
+  expect(()=>exportCadDxf(withLong)).toThrow('拒绝导出');
+  // 篡改已导出的字节：改字、截断、删除实体文字都必须被回读发现。
+  const lines=new TextDecoder().decode(exportCadDxf(model)).split('\r\n');
+  // 含中文转义的文字行（例如 “room.pcd CAD \U+5E73\U+9762\U+56FE”）。
+  const cjk=lines.findIndex(line=>line.includes('\\U+5E73'));
+  expect(cjk).toBeGreaterThan(0);
+  const join=(rows:string[])=>new TextEncoder().encode(rows.join('\r\n'));
+  // 中文改字。
+  const altered=[...lines];altered[cjk]=altered[cjk]!.split('\\U+5E73').join('\\U+5E74');
+  const alteredScan=scanDxfBytes(model,join(altered));
+  expect(alteredScan.chinesePreserved).toBe(false);
+  // 中文改字：编码后与原文字不同，且解码结果与图纸不一致。
+  expect(alteredScan.textIssues.length).toBeGreaterThan(0);
+  // 中文截断：只保留前两个转义字符。
+  const pure=lines.findIndex(line=>/^\\U\+[0-9A-F]{4}/.test(line));
+  expect(pure).toBeGreaterThan(0);
+  const truncated=[...lines];truncated[pure]=truncated[pure]!.split('\\U+').slice(0,3).join('\\U+');
+  expect(scanDxfBytes(model,join(truncated)).textIssues.some(i=>i.kind==='truncated')).toBe(true);
+  // 实体整条删除：把 TEXT 实体变成未知类型，按其 ID 报缺失。
+  const missingRows=[...lines];const idIndex=missingRows.findIndex((line,index)=>index>0&&line==='text-0017');
+  expect(idIndex).toBeGreaterThan(0);
+  missingRows[idIndex-1]='0';missingRows[idIndex]='';
+  expect(scanDxfBytes(model,join(missingRows)).textIssues.some(i=>i.kind==='missing')).toBe(true);
+  // 尺寸块内尺寸文字被删除：不能把 maxDimensionTextDeviationMm 留为 0。
+  // 块内 TEXT 以 XDATA 标识（dimension-XXXX:text）；删除该标识即可模拟文字缺失。
+  const dimRows=[...lines];const dimTextId=dimRows.findIndex(line=>/^[A-Za-z0-9_-]+:text$/.test(line));
+  expect(dimTextId).toBeGreaterThan(0);
+  dimRows[dimTextId]='dropped-id';
+  const dimScan=scanDxfBytes(model,join(dimRows));
+  expect(dimScan.dimensionTextMissing).toBeGreaterThan(0);
+  expect(()=>validateCadDxfReadback(model,1e-6,join(dimRows))).toThrow('缺少尺寸文字');
+  // 尺寸块内尺寸文字被改写：按块文字核对报偏差。
+  const dimAltered=[...lines];
+  const dimIdIndex=dimAltered.findIndex(line=>/^[A-Za-z0-9_-]+:text$/.test(line));
+  // TEXT 的 group 1 值位于 ID 之前若干行（72/1/11/…之后是 1000）。
+  const dimValueIndex=dimAltered.lastIndexOf('8000',dimIdIndex);
+  expect(dimValueIndex).toBeGreaterThan(0);
+  dimAltered[dimValueIndex]='8001';
+  const alteredDimScan=scanDxfBytes(model,join(dimAltered));
+  expect(alteredDimScan.maxDimensionTextDeviationMm).toBeGreaterThan(0);
+  expect(()=>validateCadDxfReadback(model,1e-6,join(dimAltered))).toThrow('标注显示文字');
+});
+
+it('合成参考的界面与导出提示区分来源：追加独立项不改变沿用合成条目',async()=>{
+  const model=await metresModel();
+  const syntheticEntry={...dimensionReferenceEntry('d-ortho',{referenceMm:'8000',toleranceMm:'1',provenance:syntheticProvenance})};
+  const mixed:DimensionReference={schema:'survey-dimension-reference/1',drawingId:model.drawingId,view:model.view,sourceSha256:sha,provenance,entries:[syntheticEntry]};
+  const record=createDimensionVerificationRecord(model,mixed);
+  const report=reportForDimensionVerification(model,record,sha)!;
+  expect(report.independentReference).toBe(false);
+  expect(report.status).toBe('not-verified');
+  expect(report.results[0]!.independentReference).toBe(false);
+  // 追加独立项（面板同样用该项自己的来源），旧条目保持合成来源。
+  const appended=dimensionReferenceEntry('d-skew',{referenceMm:'10084.338778',toleranceMm:'1',provenance});
+  const next=createDimensionVerificationRecord(model,{...mixed,entries:[...mixed.entries,appended]});
+  const nextReport=reportForDimensionVerification(model,next,sha)!;
+  // 报告直接给出各项结果，不复制输入条目；按结果核对来源即可。
+  expect(nextReport.results.find(r=>r.entry.dimensionId==='d-ortho')!.entry.provenance!.kind).toBe('synthetic');
+  expect(nextReport.results.find(r=>r.entry.dimensionId==='d-skew')!.entry.provenance!.kind).toBe('independent-survey');
+  expect(nextReport.counts).toMatchObject({checked:1,synthetic:1});
 });

@@ -416,11 +416,13 @@ export function App() {
   function preflightReadback(model:DrawingModel) {
     const scan=scanDrawingReadback(model),issues:string[]=[];
     if(!scan.unitsMm)issues.push(`DXF 单位码为 ${scan.insunits}，应为毫米(4)。`);
-    if(!scan.chinesePreserved)issues.push(`有 ${scan.chineseLost} 处中文在文本转义中丢失。`);
+    if(!scan.chinesePreserved)issues.push(`有 ${scan.chineseLost} 处中文文本缺失、截断或改写。`);
     if(scan.dimensionCount!==(model.dimensions?.length??0))issues.push(`回读标注 ${scan.dimensionCount} 个，与图纸 ${model.dimensions?.length??0} 个不一致。`);
     if(scan.maxDimensionDeviationMm>1e-6)issues.push(`原生标注测量值与图纸几何最大偏差 ${scan.maxDimensionDeviationMm.toFixed(6)} mm。`);
     if(!scan.allDimensionsNative)issues.push('DXF 中缺少原生 DIMENSION 实体或标注关联。');
+    if(scan.dimensionTextMissing)issues.push(`${scan.dimensionTextMissing} 个标注块缺少尺寸文字。`);
     if(scan.maxDimensionTextDeviationMm>1e-6)issues.push(`标注显示文字与几何取整不一致（最大 ${scan.maxDimensionTextDeviationMm} mm）。`);
+    for(const issue of scan.textIssues.slice(0,5))issues.push(`文字${issue.kind==="missing"?"缺失":issue.kind==="truncated"?"被截断":"被改写"}：${issue.entityId}（预期 ${issue.expected.length} 字，实际 ${issue.actual.length} 字）。`);
     return issues;
   }
   /** 源件身份：桌面句柄哈希优先；浏览器工程用内嵌源件哈希，再退到点云身份。 */
@@ -431,10 +433,13 @@ export function App() {
       const issues=preflightReadback(drawing);
       if(issues.length&&!window.confirm(`导出前回读发现 ${issues.length} 项差异：\n${issues.join('\n')}\n\n仍要继续导出并写入复核清单吗？`))return;
       const result = await createSurveyDelivery(drawing, source!,window.surveyDesktop?.renderPdf,{dimensionVerification,blockingIssues:issues});
-      const verified=!!dimensionVerification&&reportForDimensionVerification(drawing,dimensionVerification,readBackSourceId(drawing))!==undefined;
+      const report=dimensionVerification?reportForDimensionVerification(drawing,dimensionVerification,readBackSourceId(drawing)):undefined;
+      // 只有独立实测项才能把成果标为已核验；合成/推算参考保留比较结果但仍是未核验。
+      const verified=!!report?.independentReference;
       if(!(await saveFile(result.archiveName,result.archive)))return setNotice("已取消保存。");
       const readback=issues.length?`回读有 ${issues.length} 项差异，已写入复核清单。`:"";
-      setNotice(verified?`DXF、图纸、尺寸核验与校验清单已保存。${readback}`:`成果已保存；独立尺寸未核验（${dimensionVerification?'核验记录与当前图纸不一致，已排除旧结论':'未录入独立实测参考值'}）。${readback}`);
+      const unverifiedReason=dimensionVerification?(report?'仅有合成/推算参考，不作为独立实测精度':'核验记录与当前图纸不一致，已排除旧结论'):'未录入独立实测参考值';
+      setNotice(verified?`DXF、图纸、尺寸核验与校验清单已保存。${readback}`:`成果已保存；独立尺寸未核验（${unverifiedReason}）。${readback}`);
     });
   }
   function exportPdf() {
@@ -669,7 +674,7 @@ export function App() {
               <button disabled={!cadHistory.redo.length||stale||!!busy} onClick={()=>changeDimensions(cadHistory.redo.at(-1)!,'redo')}>重做尺寸</button>
             </div>
             <details className="dimension-verify-box" data-testid="dimension-verify-box">
-              <summary>关键尺寸核验{(()=>{const report=drawing&&dimensionVerification?reportForDimensionVerification(drawing,dimensionVerification,readBackSourceId(drawing)):undefined;return report?` · ${report.counts.failed?`${report.counts.failed} 项超差`:'均在容差内'}`:'';})()}</summary>
+              <summary>关键尺寸核验{(()=>{const report=drawing&&dimensionVerification?reportForDimensionVerification(drawing,dimensionVerification,readBackSourceId(drawing)):undefined;return report?report.independentReference?` · ${report.counts.failed?`${report.counts.failed} 项超差`:'均在容差内'}`:' · 仅合成参考':'';})()}</summary>
               <DimensionVerificationPanel model={drawing} record={dimensionVerification} sourceSha256={drawing?readBackSourceId(drawing):undefined} selectedDimensionId={selectedDimensionId} disabled={!!busy||stale||!drawing} onChange={r=>{setDimensionVerification(r);setDirty(true);}} onSelect={id=>{setSelectedDimensionId(id);setDimensionMode(undefined);}} onNotice={setNotice}/>
             </details>
           </div>

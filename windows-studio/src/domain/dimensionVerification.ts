@@ -12,6 +12,8 @@ export interface DimensionReferenceEntry {
   /** 独立测量的不确定度（毫米），0 表示未声明。 */
   uncertaintyMm:number;
   note:string;
+  /** 逐项来源：沿用不可信的合成/推算参考不得因追加独立参考而被改记为独立实测。 */
+  provenance?:DimensionReferenceProvenance;
 }
 /** 来源记录区分独立实测与合成/推算；合成参考不能冒充实测精度。 */
 export interface DimensionReferenceProvenance {
@@ -45,6 +47,8 @@ export const MAX_DIMENSION_REFERENCES=500;
 
 export interface DimensionVerificationResult {
   entry:DimensionReferenceEntry;
+  /** 仅当该项来源为独立实测时才计入独立核验。 */
+  independentReference:boolean;
   /** 图纸上的几何测量值（毫米，未取整）。 */
   measuredMm:number;
   /** 图纸显示值（按取整规则）。 */
@@ -67,11 +71,13 @@ export interface DimensionVerificationReport {
   verifiedAt:string;
   provenance:DimensionReferenceProvenance;
   independentReference:boolean;
-  status:'sample-within-tolerance'|'sample-out-of-tolerance';
+  status:'sample-within-tolerance'|'sample-out-of-tolerance'|'not-verified';
   acceptanceRule:string;
   units:{drawing:'mm';metersToMillimeters:number};
-  counts:{checked:number;failed:number;totalDimensions:number};
+  counts:{checked:number;failed:number;synthetic:number;totalDimensions:number};
   results:DimensionVerificationResult[];
+  /** 合成/推算参考的比较结果，不作为独立实测精度。 */
+  syntheticCounts:{checked:number;failed:number};
   limitations:string[];
 }
 
@@ -111,6 +117,10 @@ export function assertDimensionReference(reference:DimensionReference):void{
     if(!entry||typeof entry.id!=='string'||!entry.id||typeof entry.dimensionId!=='string'||!entry.dimensionId)throw Error('尺寸参考条目缺少编号。');
     if(!finite(entry.referenceMm)||entry.referenceMm<=0||!finite(entry.toleranceMm)||entry.toleranceMm<=0||!finite(entry.uncertaintyMm)||entry.uncertaintyMm<0)throw Error('参考值、容差或不确定度无效；容差必须大于零。');
     if(typeof entry.note!=='string')throw Error('尺寸参考备注无效。');
+    if(entry.provenance!==undefined){
+      const ep=entry.provenance;
+      if(!['independent-survey','synthetic'].includes(ep?.kind)||![ep?.method,ep?.operator,ep?.measuredAt,ep?.documentRef].every(v=>typeof v==='string'&&v.trim().length>0)||!finite(Date.parse(ep.measuredAt))||typeof ep.instrument!=='string')throw Error('尺寸参考条目来源无效。');
+    }
     if(seen.has(entry.dimensionId))throw Error('同一尺寸存在重复参考值。');seen.add(entry.dimensionId);
   }
 }
@@ -138,6 +148,7 @@ export function measureDimension(model:DrawingModel,entry:DimensionReferenceEntr
   const crossing=entry.referenceMm===0;
   return {
     entry:{...entry},
+    independentReference:(entry.provenance?.kind??'independent-survey')==='independent-survey',
     measuredMm:clean(measuredMm),
     displayedMm:clean(displayedMm),
     deviationMm:clean(deviationMm),
@@ -174,15 +185,18 @@ export function reportForDimensionVerification(model:DrawingModel,record:Dimensi
     if(ref.entries.some(entry=>!dimensionById(model,entry.dimensionId)))return undefined;
     results=assessDimensionReferences(model,ref);
   }catch{return undefined;}
-  const failed=results.filter(r=>!r.withinTolerance).length;
+  const independent=results.filter(r=>r.independentReference);
+  const failed=independent.filter(r=>!r.withinTolerance).length;
   return {
     schema:'survey-dimension-verification-report/1',
     drawingId:model.drawingId,view:model.view,sourceSha256:sourceSha256,verifiedAt:record.verifiedAt,
-    provenance:ref.provenance,independentReference:ref.provenance.kind==='independent-survey',
-    status:failed?'sample-out-of-tolerance':'sample-within-tolerance',
+    provenance:ref.provenance,independentReference:independent.length>0,
+    // 只有独立实测项才能决定结论；合成/推算参考单独保留结果，不冒充实测通过。
+    status:independent.length?failed?'sample-out-of-tolerance':'sample-within-tolerance':'not-verified',
     acceptanceRule:'abs(drawing measured - independent reference) + reference uncertainty <= user tolerance',
+    syntheticCounts:{checked:results.length-independent.length,failed:results.filter(r=>!r.independentReference&&!r.withinTolerance).length},
     units:{drawing:'mm',metersToMillimeters:record.metersToMillimeters},
-    counts:{checked:results.length,failed,totalDimensions:model.dimensions?.length??0},
+    counts:{checked:independent.length,failed,synthetic:results.length-independent.length,totalDimensions:model.dimensions?.length??0},
     results,
     limitations:[
       '只核验清单列出的关键尺寸，不代表全图或整栋建筑的精度认证。',
@@ -194,11 +208,12 @@ export function reportForDimensionVerification(model:DrawingModel,record:Dimensi
 
 /** 参考模板只列出可标注尺寸，不把图纸当前测量值预填成“实测真值”。 */
 export function dimensionReferenceTemplate(model:DrawingModel,sourceSha256:string){
+  const provenanceTemplate:DimensionReferenceProvenance={kind:'independent-survey',method:'',operator:'',measuredAt:'',documentRef:'',instrument:''};
   return {
     schema:'survey-dimension-reference/1' as const,
     drawingId:model.drawingId,view:model.view,sourceSha256,
     provenance:{kind:'independent-survey' as const,method:'全站仪/钢尺实测关键净尺寸',operator:'',measuredAt:'',documentRef:'',instrument:''},
-    entries:(model.dimensions??[]).map(d=>({id:`${d.id}-ref`,dimensionId:d.id,referenceMm:null,toleranceMm:null,uncertaintyMm:0,note:''})),
+    entries:(model.dimensions??[]).map(d=>({id:`${d.id}-ref`,dimensionId:d.id,referenceMm:null,toleranceMm:null,uncertaintyMm:0,note:'',provenance:{...provenanceTemplate}})),
   };
 }
 
@@ -219,7 +234,7 @@ export function validateImportedDimensionReference(value:unknown,model:DrawingMo
 }
 
 /** 校验界面上手工录入的条目（选中尺寸逐项填写）。 */
-export function dimensionReferenceEntry(dimensionId:string,raw:{referenceMm:string|number;toleranceMm:string|number;uncertaintyMm?:string|number;note?:string}):DimensionReferenceEntry{
+export function dimensionReferenceEntry(dimensionId:string,raw:{referenceMm:string|number;toleranceMm:string|number;uncertaintyMm?:string|number;note?:string;provenance?:DimensionReferenceProvenance}):DimensionReferenceEntry{
   const num=(value:unknown,name:string)=>{
     const n=typeof value==='number'?value:Number(String(value??'').trim());
     if(String(value??'').trim()===''||!Number.isFinite(n))throw Error(`${name}必须是有效数字。`);
@@ -229,5 +244,5 @@ export function dimensionReferenceEntry(dimensionId:string,raw:{referenceMm:stri
   if(referenceMm<=0)throw Error('参考值必须大于零。');
   if(toleranceMm<=0)throw Error('容差必须大于零；缺少容差时不能判定合格。');
   if(uncertaintyMm<0)throw Error('不确定度不能为负。');
-  return {id:crypto.randomUUID(),dimensionId,referenceMm,toleranceMm,uncertaintyMm,note:String(raw.note??'').slice(0,200)};
+  return {id:crypto.randomUUID(),dimensionId,referenceMm,toleranceMm,uncertaintyMm,note:String(raw.note??'').slice(0,200),...(raw.provenance?{provenance:{...raw.provenance}}:{})};
 }

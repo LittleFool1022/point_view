@@ -1375,6 +1375,7 @@ input {
 }
 
 .dimension-verify-results tr.bad td { color: #9a2f2f; }
+.dimension-verify-results tr.warn td { color: #6e4712; }
 
 .dimension-verify-results .link-button {
   background: none;
