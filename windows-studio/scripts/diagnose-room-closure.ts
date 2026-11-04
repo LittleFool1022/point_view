@@ -12,7 +12,11 @@ import { mkdir, open, writeFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { readCloud } from "../src/pipeline/binaryPcd";
 import { fitWallLines } from "../src/pipeline/wallLines";
+<<<<<<< HEAD
 import { DEDUPE_AXIS_GAP_M, DEDUPE_DIRECTION_DEG, DEDUPE_PROJECTION_GAP_M, mergeWallSegments } from "../src/pipeline/wallDedupe";
+=======
+import { buildWallNetwork } from "../src/pipeline/wallNetwork";
+>>>>>>> origin/agent/wall-network-join-1409a2b30180
 import { buildingFromSegments, roomsFromWalls } from "../src/domain/buildingOps";
 import { traceWallLines } from "./replay-wall-lines";
 import type { PointCloudData } from "../../src/domain/types";
@@ -41,6 +45,7 @@ const fitSeconds = (performance.now() - fitStart) / 1000;
 // 同一输入重放展开后的各阶段计数；重放的**未合并**墙段必须与 fitWallLines 的拟合输出逐段一致，
 // 再按同一合并函数复算，与 fitWallLines 返回的合并结果一致时阶段计数可信。
 const replayed = traceWallLines(working);
+<<<<<<< HEAD
 if (replayed.segments.length !== fitted.fittedSegments) throw Error("阶段计数实现与 fitWallLines 不一致：拟合段数不同。");
 const replaySegments = replayed.segments;
 // 合并前（fitWallLines 拟合输出，旧口径的 66 条候选）与合并后（fitWallLines 返回）逐段对照。
@@ -48,6 +53,14 @@ const before = mergeWallSegments(replaySegments), segments = fitted.segments;
 if (before.segments.length !== segments.length || !before.segments.every((s, i) => distance(s.a, segments[i]!.a) < 1e-6 && distance(s.b, segments[i]!.b) < 1e-6 && distance(s.b, segments[i]!.b) < 1e-6)) throw Error("阶段计数实现与 fitWallLines 的合并结果不一致。");
 const mergedMembers = new Set(fitted.mergeGroups.flatMap(g => g.sourceIndexes));
 if ([...mergedMembers].some(index => !replaySegments[index])) throw Error("合并来源编号超出拟合输出范围。");
+=======
+const rawSegments = replayed.rawSegments;
+if (replayed.segments.length !== fitted.segments.length || !replayed.segments.every((s, i) => distance(s.a, fitted.segments[i]!.a) < 1e-6 && distance(s.b, fitted.segments[i]!.b) < 1e-6)) throw Error("阶段计数实现与 fitWallLines 不一致。");
+const segments = fitted.segments;
+// 连接前后对照：拟合原始墙候选 → buildWallNetwork（连接后）分别统计节点/端点/分量。
+const network = fitted.network;
+
+>>>>>>> origin/agent/wall-network-join-1409a2b30180
 // 逐段证据：墙厚带内点数决定可否确认为墙；墙厚带外近邻点数决定是否为孤立伪影。
 const metrics = segments.map((s, index) => {
   const dx = s.b[0] - s.a[0], dy = s.b[1] - s.a[1], length = Math.hypot(dx, dy), half = thicknessM / 2;
@@ -130,7 +143,8 @@ const tallyBefore: Record<string, number> = { wall: 0, duplicate: 0, artifact: 0
 for (const c of classifiedBefore.values()) tallyBefore[c] = (tallyBefore[c] ?? 0) + 1;
 
 // 端点拓扑（当前 roomsFromWalls 口径）：0.2 mm 合并后统计度数，按连通分量给出环/淘汰原因。
-const nodes: P[] = [], ends: Array<[number, number]> = [];
+const nodes: P[] = [], ends: Array<[number, number]> = [], beforeNodes: P[] = [], beforeEnds: Array<[number, number]> = [];
+for (const s of rawSegments) { const at = (p: P) => { const i = beforeNodes.findIndex(q => distance(q, p) < .002); if (i < 0) { beforeNodes.push(p); return beforeNodes.length - 1; } return i; }; beforeEnds.push([at(s.a), at(s.b)]); }
 for (const s of segments) { const at = (p: P) => { const i = nodes.findIndex(q => distance(q, p) < .002); if (i < 0) { nodes.push(p); return nodes.length - 1; } return i; }; ends.push([at(s.a), at(s.b)]); }
 const degree = nodes.map(() => 0); for (const [a, b] of ends) { degree[a]!++; degree[b]!++; }
 const degreeHistogram: Record<string, number> = {}; for (const d of degree) degreeHistogram[d] = (degreeHistogram[d] ?? 0) + 1;
@@ -153,6 +167,15 @@ const chainGaps = [...dangling].map(([index, end]) => {
   segments.forEach((other, i) => { if (i === index) return; const dx = other.b[0] - other.a[0], dy = other.b[1] - other.a[1], length = Math.hypot(dx, dy), t = Math.max(0, Math.min(1, ((p[0] - other.a[0]) * dx + (p[1] - other.a[1]) * dy) / (length * length))), q: P = [other.a[0] + dx * t, other.a[1] + dy * t], gap = distance(p, q); if (!best || gap < best.gapM) best = { nearestWallIndex: i, gapM: round(gap) }; });
   return { wallIndex: index, end, lengthM: round(distance(s.a, s.b)), category: classified[index]!.category, pointM: p.map(round) as P, nearestWallIndex: best?.nearestWallIndex, nearestGapM: best?.gapM };
 });
+function beforeTopology(list: ReadonlyArray<{ a: P; b: P }>) {
+  const pts: P[] = [], pairs: Array<[number, number]> = [];
+  for (const s of list) { const at = (p: P) => { const i = pts.findIndex(q => distance(q, p) < .002); if (i < 0) { pts.push(p); return pts.length - 1; } return i; }; pairs.push([at(s.a), at(s.b)]); }
+  const deg = pts.map(() => 0); for (const [a, b] of pairs) { deg[a]!++; deg[b]!++; }
+  const adj = pts.map(() => [] as number[]); pairs.forEach(([a, b], e) => { adj[a]!.push(e); adj[b]!.push(e); });
+  const seen = new Set<number>(); let components = 0;
+  for (let e = 0; e < pairs.length; e++) { if (seen.has(e)) continue; components++; const q = [e]; while (q.length) { const k = q.pop()!; if (seen.has(k)) continue; seen.add(k); for (const n of pairs[k]!) for (const o of adj[n]!) if (!seen.has(o)) q.push(o); } }
+  return { edges: pairs.length, wallNodes: pts.length, degreeHistogram: deg.reduce((acc: Record<string, number>, d) => ({ ...acc, [d]: (acc[d] ?? 0) + 1 }), {}), openEndpoints: deg.filter(d => d === 1).length, connectedComponents: components };
+}
 const report = {
   source: { name, bytes: stat.size, sha256, pointCount: working.visible.length, elevationM, heightM, thicknessM },
   timings: { decodeSeconds: round(decodeSeconds), fitSeconds: round(fitSeconds) },
@@ -176,6 +199,10 @@ const report = {
     }),
   },
   chain: {
+    // 连接前（拟合墙候选直接建网，无任何端点连接）的拓扑。
+    before: beforeTopology(rawSegments),
+    // 连接后（墙网级规则：沿轴延长、T 形插节点、门口不连）。
+    after: { wallNodes: network.nodes.length, degreeHistogram: network.nodes.reduce((acc: Record<string, number>, n) => ({ ...acc, [n.degree]: (acc[n.degree] ?? 0) + 1 }), {}), edges: network.edges, join: network.join, unclosed: network.unclosed },
     sourcePoints: working.visible.length, inHeightBandPoints: inBand, evidenceCells: fitted.evidenceCells,
     fittedSegments: fitted.fittedSegments, mergedSegments: segments.length, mergedGroups: fitted.mergeGroups.length,
     wallCandidates: segments.length, openingsAutoDetected: 0,
@@ -196,9 +223,17 @@ await writeFile(`${out}/segments.json`, JSON.stringify(segments));
 await writeFile(`${out}/segments-before-merge.json`, JSON.stringify(replaySegments));
 const all = segments.flatMap(s => [s.a, s.b]), minX = Math.min(...all.map(p => p[0])), maxX = Math.max(...all.map(p => p[0])), minY = Math.min(...all.map(p => p[1])), maxY = Math.max(...all.map(p => p[1])), pad = Math.max(1, (maxX - minX + maxY - minY) / 40);
 const colour: Record<string, string> = { wall: "#dceee8", duplicate: "#e0b25c", artifact: "#c96b6b", suspect: "#7fb0d8" };
+await writeFile(`${out}/walls-candidates.svg`, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${minX - pad} ${-maxY - pad} ${maxX - minX + 2 * pad} ${maxY - minY + 2 * pad}" width="1400" height="900"><rect x="${minX - pad}" y="${-maxY - pad}" width="${maxX - minX + 2 * pad}" height="${maxY - minY + 2 * pad}" fill="#20282c"/>${rawSegments.map((s) => `<line x1="${s.a[0]}" y1="${-s.a[1]}" x2="${s.b[0]}" y2="${-s.b[1]}" stroke="#dceee8" stroke-width="${pad / 200}"/>`).join("")}</svg>`);
 await writeFile(`${out}/walls.svg`, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${minX - pad} ${-maxY - pad} ${maxX - minX + 2 * pad} ${maxY - minY + 2 * pad}" width="1400" height="900"><rect x="${minX - pad}" y="${-maxY - pad}" width="${maxX - minX + 2 * pad}" height="${maxY - minY + 2 * pad}" fill="#20282c"/>${segments.map((s, i) => `<line x1="${s.a[0]}" y1="${-s.a[1]}" x2="${s.b[0]}" y2="${-s.b[1]}" stroke="${colour[classified[i]!.category]}" stroke-width="${pad / 120}"><title>#${i} ${classified[i]!.category} ${round(distance(s.a, s.b))}m</title></line>`).join("")}</svg>`);
+<<<<<<< HEAD
 // 合并前后分类着色对照：合并前按"拟合输出的每段自己的类别"上色，合并后按合并结果的类别上色。
 const allBefore = replaySegments.flatMap(s => [s.a, s.b]), bminX = Math.min(...allBefore.map(p => p[0])), bmaxX = Math.max(...allBefore.map(p => p[0])), bminY = Math.min(...allBefore.map(p => p[1])), bmaxY = Math.max(...allBefore.map(p => p[1]));
 const bpad = Math.max(1, (bmaxX - bminX + bmaxY - bminY) / 40);
 await writeFile(`${out}/walls-before-merge.svg`, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${bminX - bpad} ${-bmaxY - bpad} ${bmaxX - bminX + 2 * bpad} ${bmaxY - bminY + 2 * bpad}" width="1400" height="900"><rect x="${bminX - bpad}" y="${-bmaxY - bpad}" width="${bmaxX - bminX + 2 * bpad}" height="${bmaxY - bminY + 2 * bpad}" fill="#20282c"/>${replaySegments.map((s, i) => `<line x1="${s.a[0]}" y1="${-s.a[1]}" x2="${s.b[0]}" y2="${-s.b[1]}" stroke="${colour[classifiedBefore.get(i) ?? "suspect"]}" stroke-width="${bpad / 120}"><title>#${i} ${classifiedBefore.get(i)} ${round(distance(s.a, s.b))}m</title></line>`).join("")}</svg>`);
 console.log(JSON.stringify({ source: report.source, dedupe: { criteria: report.dedupe.criteria, fittedSegments: fitted.fittedSegments, mergedSegments: segments.length, groups: report.dedupe.groups }, chain: report.chain, tallyBeforeMerge: tallyBefore, tally, timings: report.timings }, null, 2));
+=======
+// 连接前后的墙网视图：连接后按度数着色画墙段 + 节点圆点，便于对照节点数/度数变化。
+const colourDegree = (d: number) => (d >= 3 ? "#7fd8c0" : d === 2 ? "#dceee8" : "#e0b25c");
+await writeFile(`${out}/walls-joined.svg`, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${minX - pad} ${-maxY - pad} ${maxX - minX + 2 * pad} ${maxY - minY + 2 * pad}" width="1400" height="900"><rect x="${minX - pad}" y="${-maxY - pad}" width="${maxX - minX + 2 * pad}" height="${maxY - minY + 2 * pad}" fill="#20282c"/>${network.segments.map((s) => `<line x1="${s.a[0]}" y1="${-s.a[1]}" x2="${s.b[0]}" y2="${-s.b[1]}" stroke="#dceee8" stroke-width="${pad / 200}"/>`).join("")}${network.nodes.map((n) => `<circle cx="${n.p[0]}" cy="${-n.p[1]}" r="${pad / 130}" fill="${colourDegree(n.degree)}"/>`).join("")}</svg>`);
+console.log(JSON.stringify({ source: report.source, chain: report.chain, tally, timings: report.timings }, null, 2));
+>>>>>>> origin/agent/wall-network-join-1409a2b30180

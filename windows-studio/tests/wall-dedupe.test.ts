@@ -97,8 +97,9 @@ describe("墙候选去重合并（fitWallLines 输出之后）", () => {
     const { decodeSource } = await import("../src/pipeline/analysis");
     const { demoRoom } = await import("../src/domain/demo");
     const fitted = await fitWallLines(await decodeSource("room.pcd", demoRoom(), "m"), () => {});
-    expect(fitted.fittedSegments).toBeGreaterThanOrEqual(fitted.segments.length);
-    const sources = fitted.segments.flatMap(s => s.sources ?? []);
+    expect(fitted.fittedSegments).toBeGreaterThanOrEqual(fitted.dedupedSegments);
+    // 集成后墙网连接会按 T 形节点切分墙段，同一去重段可能出现在多个子段里：按段去重后来源应恰好覆盖 [0, fittedSegments)。
+    const sources = [...new Set(fitted.segments.flatMap(s => s.sources ?? []))];
     expect([...sources].sort((a, b) => a - b)).toEqual(Array.from({ length: fitted.fittedSegments }, (_, i) => i));
     expect(fitted.mergeGroups.every(g => g.sourceIndexes.length > 1)).toBe(true);
   });
@@ -111,14 +112,20 @@ describe("墙候选去重合并（fitWallLines 输出之后）", () => {
     for (let t = 0; t <= 8; t += .05) for (let z = 0; z < 3; z += .1) { add(t, 0, z); add(t, 6, z); }
     for (let t = 0; t <= 6; t += .05) for (let z = 0; z < 3; z += .1) { add(0, t, z); add(8, t, z); add(8 - .3, t, z); }
     const fitted = await fitWallLines(cloud(p), () => {});
-    const sources = fitted.segments.flatMap(s => s.sources ?? []);
+    const sources = [...new Set(fitted.segments.flatMap(s => s.sources ?? []))];
     expect([...sources].sort((a, b) => a - b)).toEqual(Array.from({ length: fitted.fittedSegments }, (_, i) => i));
     // 每面墙只输出一条：同一位置不再出现与主线平行的第二道墙。
-    for (const a of fitted.segments) for (const b of fitted.segments) if (a !== b) {
+    // 集成后墙网连接会在 T 形节点处把同一道墙切成共线的首尾相接子段（同 dedupedIndex，投影相接），
+    // 这属于期望的建网结果，不在此判据内；判据只针对"位置平行错开且投影重叠"的重复段。
+    const side = (q: WallSegment, a: WallSegment, ua: P) => [Math.abs((q.a[0] - a.a[0]) * ua[1] - (q.a[1] - a.a[1]) * ua[0]), Math.abs((q.b[0] - a.a[0]) * ua[1] - (q.b[1] - a.a[1]) * ua[0])];
+    for (const a of fitted.segments) for (const b of fitted.segments) if (a !== b && a.dedupedIndex !== b.dedupedIndex) {
       const la = length(a), lb = length(b), ua: P = [(a.b[0] - a.a[0]) / la, (a.b[1] - a.a[1]) / la];
       const parallel = Math.abs(ua[0] * (b.b[1] - b.a[1]) - ua[1] * (b.b[0] - b.a[0])) / lb < Math.sin(DEDUPE_DIRECTION_DEG * Math.PI / 180);
-      const sideA = Math.abs((b.a[0] - a.a[0]) * ua[1] - (b.a[1] - a.a[1]) * ua[0]), sideB = Math.abs((b.b[0] - a.a[0]) * ua[1] - (b.b[1] - a.a[1]) * ua[0]);
-      if (parallel) expect(Math.max(sideA, sideB)).toBeGreaterThanOrEqual(DEDUPE_AXIS_GAP_M);
+      const [sideA, sideB] = side(b, a, ua);
+      // 投影区间（在 a 的轴上）是否重叠：首尾相接的共线子段允许处于同一位置。
+      const projB = [0, 1].map(k => { const p = k ? b.b : b.a; return (p[0] - a.a[0]) * ua[0] + (p[1] - a.a[1]) * ua[1]; });
+      const overlap = Math.min(Math.max(...projB), la) - Math.max(Math.min(...projB), 0);
+      if (parallel && overlap > 1e-6) expect(Math.max(sideA, sideB)).toBeGreaterThanOrEqual(DEDUPE_AXIS_GAP_M);
     }
   });
 });

@@ -4,10 +4,11 @@ import { appendDimension } from "../../../src/cad/dimensions";
 import type { PointCloudData } from "../../../src/domain/types";
 import type { CadDrawingSettings, DrawingModel } from "../../../src/cad/model";
 import { generateDrawing } from "./analysis";
+import { MAX_EXTENSION_M, OPENING_M, TIE_TOLERANCE_M, buildWallNetwork, type UnclosedEnd, type WallNetwork } from "./wallNetwork";
 import { mergeWallSegments } from "./wallDedupe";
 type P = [number, number];
-/** 墙段；`sources` 为合并来源的原段编号，`merge` 为合并记录（未合并为 null）。 */
-export interface WallSegment { a: P; b: P; support: number; rmsM: number; sources?: number[]; merge?: { sourceIndexes: number[]; backboneIndex: number; projectionUnionM: [number, number]; coveredFraction: number } | null }
+/** 墙段；`sources` 为合并来源的原段编号，`merge` 为合并记录（未合并为 null），`dedupedIndex` 为去重输出段号。 */
+export interface WallSegment { a: P; b: P; support: number; rmsM: number; sources?: number[]; merge?: { sourceIndexes: number[]; backboneIndex: number; projectionUnionM: [number, number]; coveredFraction: number } | null; dedupedIndex?: number }
 const distance = (a: P, b: P) => Math.hypot(a[0] - b[0], a[1] - b[1]);
 
 /** 亚分米网格仅用于检索跨高度证据；输出几何来自证据质心拟合，不描格网边。 */
@@ -64,20 +65,21 @@ export async function fitWallLines(cloud: PointCloudData, progress: (s: string) 
     points = points.filter(p => Math.abs((p[0] - best!.a[0]) * best!.uy - (p[1] - best!.a[1]) * best!.ux) > tolerance);
     if (round % 5 === 0) { progress(`拟合墙线 ${segments.length} 段`); await new Promise(r => setTimeout(r, 0)); }
   }
-  // 只有两条非平行线的端点都距交点12cm以内才相接，不跨门洞补墙。
-  for (let i = 0; i < segments.length; i++) for (let j = i + 1; j < segments.length; j++) {
-    const a = segments[i]!, b = segments[j]!, u: P = [a.b[0] - a.a[0], a.b[1] - a.a[1]], v: P = [b.b[0] - b.a[0], b.b[1] - b.a[1]];
-    const cross = u[0] * v[1] - u[1] * v[0]; if (Math.abs(cross) < .15 * distance(a.a, a.b) * distance(b.a, b.b)) continue;
-    const t = ((b.a[0] - a.a[0]) * v[1] - (b.a[1] - a.a[1]) * v[0]) / cross, p: P = [a.a[0] + u[0] * t, a.a[1] + u[1] * t];
-    const ak = distance(a.a, p) < distance(a.b, p) ? "a" : "b", bk = distance(b.a, p) < distance(b.b, p) ? "a" : "b";
-    if (distance(a[ak], p) <= .12 && distance(b[bk], p) <= .12) { a[ak] = [...p]; b[bk] = [...p]; }
-  }
-  // 拟合后的去重合并：同一墙轴上的平行重复段（内点删除后的二次分配）合成一条，见 wallDedupe.ts。
-  // 放在端点连接之后：合并后的轴位置与范围来自全部来源段，不受连接时端点微移的累计影响。
+  // 集成顺序（a→b）：先按 wallDedupe.ts 合并同一墙轴上的平行重复段，再交给 wallNetwork.ts 的
+  // 墙网级连接（贴合 T 形插节点、角接、沿墙轴延长）；洞口不补墙，未连接项逐条给出位置与原因。
+  // 去重在前：连接阶段的贴合/延长作用在合并后的墙轴上，不会把重复段的端点再拉成新节点；
+  // 去重的判据（轴向间距 0.15 m、投影相接 0.02 m）只比较轴向位置与投影区间，不读端点微移，
+  // 故不受连接阶段影响。两者的判据与参数均未改动。
   const deduped = mergeWallSegments(segments);
-  if (deduped.segments.length < 2) throw Error("无法拟合足够的持续墙线；请先清理建筑范围。不会回退到占据轮廓。");
   if (deduped.groups.length) progress(`合并同墙轴重复段 ${deduped.groups.length} 组，${segments.length}→${deduped.segments.length} 段`);
-  return { segments: deduped.segments, mergeGroups: deduped.groups, fittedSegments: segments.length, evidenceCells, retained, cell, bounds: { min: [minX, minY, minZ] as [number, number, number], max: [maxX, maxY, maxZ] as [number, number, number] } };
+  const network = buildWallNetwork(deduped.segments);
+  if (network.segments.length < 2) throw Error("无法拟合足够的持续墙线；请先清理建筑范围。不会回退到占据轮廓。");
+  // 连接结果按墙网边顺序给出；来源编号（sources/merge）随段带出，供诊断与去重去向核对回溯。
+  const joined = network.segments.map(({ a, b, support, rmsM, sourceIndex }) => {
+    const source = deduped.segments[sourceIndex]!;
+    return { a, b, support, rmsM, sources: source.sources ? [...source.sources] : undefined, merge: source.merge ?? null, dedupedIndex: sourceIndex };
+  });
+  return { segments: joined, network, mergeGroups: deduped.groups, fittedSegments: segments.length, dedupedSegments: deduped.segments.length, evidenceCells, retained, cell, bounds: { min: [minX, minY, minZ] as [number, number, number], max: [maxX, maxY, maxZ] as [number, number, number] } };
 }
 
 export async function generateWallDrawing(cloud: PointCloudData, name: string, settings: Partial<CadDrawingSettings>, progress: (s: string) => void): Promise<DrawingModel> {
@@ -146,8 +148,8 @@ export async function generateWallDrawing(cloud: PointCloudData, name: string, s
   model.layoutBoundsMm = { min: model.layoutBoundsMm.min.map((v, i) => Math.min(v, model.modelBoundsMm.min[i]!)) as P, max: model.layoutBoundsMm.max.map((v, i) => Math.max(v, model.modelBoundsMm.max[i]!)) as P };
   model.statistics.sourcePointCount = cloud.visible.length; model.statistics.observedWallEntities = segments.length; model.statistics.roomCount = 0;
   model.accuracy.gridResolutionMm = result.cell * 1000; model.accuracy.fittingEstimateMm = Math.max(...segments.map(s => s.rmsM)) * 1000;
-  const endpoints = segments.flatMap(s => [s.a, s.b]);
-  const openEndpoints = endpoints.filter((p, i) => !endpoints.some((q, j) => i !== j && distance(p, q) < .001)).length;
+  // 悬空端直接取墙网连接结果：与"未连接清单"同源，避免两套口径。
+  const openEndpoints = result.network.join.dangling;
   model.parameters.orthogonalizeWalls = true; model.parameters.detailDimensions = true; model.parameters.alignToPrincipalAxis = aligned;
   if(aligned){
     model.parameters.planAlignment={angleRadians:rotation,originM:[0,0],method:"wall-directions"};
@@ -157,8 +159,8 @@ export async function generateWallDrawing(cloud: PointCloudData, name: string, s
   const { min, max } = result.bounds;
   model.sourceSummary = { ...model.sourceSummary, pointCount: cloud.visible.length, bounds: result.bounds, width: max[0] - min[0], depth: max[1] - min[1], height: max[2] - min[2], volumeM3: (max[0] - min[0]) * (max[1] - min[1]) * (max[2] - min[2]) };
   model.titleBlock.accuracyNote = `墙体索引60mm；最大拟合RMS ${model.accuracy.fittingEstimateMm.toFixed(1)}mm；原始配准精度未提供，须现场复核`;
-  Object.assign(model.parameters, { analysisMode: "vertical-evidence-ransac-lines", retainedPoints: result.retained, excludedPoints: cloud.visible.length - result.retained, evidenceCells: result.evidenceCells, fitToleranceM: .045, maxJoinM: .12, minWallLengthM: .8, openEndpoints, fittedSegments: result.fittedSegments, mergedWallGroups: result.mergeGroups.length, dimensionLanes });
-  model.warnings = [{ code: "WALL_LINES_REVIEW", severity: "warning", message: `${openEndpoints} 个未连接端点（含门洞或缺失证据），墙线来自跨高度证据和直线拟合；未识别门窗，曲墙可能遗漏。仅拼接12cm内的近邻交点，未强制闭合，须复核墙体与尺寸；不构成施工图精度验收。` }];
+  Object.assign(model.parameters, { analysisMode: "vertical-evidence-ransac-lines", retainedPoints: result.retained, excludedPoints: cloud.visible.length - result.retained, evidenceCells: result.evidenceCells, fitToleranceM: .045, maxJoinM: .12, maxExtensionM: MAX_EXTENSION_M, openingM: OPENING_M, tieToleranceM: TIE_TOLERANCE_M, minWallLengthM: .8, openEndpoints, fittedSegments: result.fittedSegments, dedupedSegments: result.dedupedSegments, mergedWallGroups: result.mergeGroups.length, wallJoin: result.network.join, unclosedEnds: result.network.unclosed, dimensionLanes });
+  model.warnings = [{ code: "WALL_LINES_REVIEW", severity: "warning", message: `${openEndpoints} 个未连接端点（洞口 ${result.network.join.opening} 个按门口保留、${result.network.join.unclosed} 个 0.5–1.0 m 缺口未闭合），墙线来自跨高度证据和直线拟合；未识别门窗，曲墙可能遗漏。同一墙轴的平行重复段先合并 ${result.mergeGroups.length} 组，连接只在同一墙轴上延长（≤${MAX_EXTENSION_M} m）、T 形插入节点，≥${OPENING_M} m 洞口不补墙，未强制闭合，须复核墙体与尺寸；不构成施工图精度验收。` }];
   model.titleBlock.evidenceNote = "跨高度墙线拟合；分段尺寸单位mm；原件及清理规则保留";
   model.titleBlock.softwareVersion = `Survey Studio ${STUDIO_VERSION}`;
   return restyleCadDrawing(model,settings);
