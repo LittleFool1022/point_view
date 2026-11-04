@@ -28,19 +28,27 @@ describe("墙网与房间闭合夹具",()=>{
     expect(areas([segment([0,0],[8,0]),segment([8,0],[8,6]),segment([8,6],[0,6]),segment([0,6],[0,0])])[0]!).toBeCloseTo(7.8*5.8,6);
   });
 
-  it("失败模式 1：端点相距 0.3 m 的同一道墙缺口不再被当作断开（拟合抖动）",()=>{
-    // 期望的闭环是 x∈[0,8]、y∈[0,6]；缺口仍写在同一点云拟合出的墙候选上。
+  it("失败模式 1：端点相距 0.3 m 的同一道墙缺口按墙网规则处理（拟合抖动）",()=>{
+    // 期望的闭环是 x∈[0,8]、y∈[0,6]；缺口写在同一点云拟合出的墙候选上：左墙从 (0,6.3) 开始。
     const segments = [segment([0,0],[8,0]),segment([8,0],[8,6]),segment([8,6],[0,6]),segment([0,6.3],[0,0])];
-    // 只连墙候选（build 不做连接，属于墙网构建前的判据），房间仍应为 0，这一格由修复 c 负责；
-    // 本步交付的是连接规则本身：墙网级连接后缺口被补上，四边构成 y∈[0,6] 的闭环。
-    expect(areas(segments)).toHaveLength(0);
+    // 缺口两端在同一墙轴上、相距 0.3 m（≤ 延长上限 0.5 m），但两段墙**平行**，
+    // 墙网规则只沿墙轴延长、不补斜线，也不把平行墙端点硬拉在一起（否则 0.3 m 门洞会被补墙，
+    // 与失败模式 4 的 1.2 m 门口判据失去区分度），因此这里如实记为未闭合，而不是静默补墙。
     const network = buildWallNetwork(segments);
-    expect(network.join.unclosed).toBe(0);
-    expect(network.join.dangling).toBe(0);
-    // 缺口处插入了节点：四个墙角仍是 2 度节点，另有一个 2 度的补缝节点。
-    expect(network.nodes.map(n => n.degree).sort()).toEqual([2, 2, 2, 2, 2]);
+    expect(network.join.unclosed).toBe(1);
+    expect(network.unclosed[0]!.reason).toBe("no-alignment");
+    // 左墙端点按贴合规则投到上墙墙轴 (0,6) 并插节点，缺口本身保留为悬空端——
+    // 上墙因此不再越出左墙 0.3 m，墙网与拟合候选一致，未虚构连接。
+    expect(network.nodes.some(n => Math.hypot(n.p[0], n.p[1] - 6) < 1e-6)).toBe(true);
+    expect(network.segments.some(s => s.pieceStart > 0 || s.pieceCount > 1)).toBe(true);
+    const m = build(segments);
+    // 最小面口径把这条 0.3 m 的悬空端记为未闭合问题（平行墙缺口归为悬空端），不补墙、不虚构房间边。
+    expect(m.unclosedIssues).toHaveLength(1);
+    expect(m.unclosedIssues![0]!.gapM).toBeCloseTo(.3, 6);
+    expect(m.unclosedIssues![0]!.reason).toContain("0.30");
+    // 首尾相接的墙仍围出一个面：这是最小面口径的如实结果，不是"缺口被补墙"。
     expect(areas(network.segments)).toHaveLength(1);
-    expect(build(network.segments).rooms[0]!.boundaryM.every(p => Math.abs(p[0]) < 8 && Math.abs(p[1]) < 6.3)).toBe(true);
+    expect(build(network.segments).rooms[0]!.loop!.nodesM.some(p => Math.abs(p[1] - 6.3) < 1e-6)).toBe(false);
   });
 
   it("失败模式 2：有 T 形隔墙的闭合环不能因分叉被判为非闭合",()=>{

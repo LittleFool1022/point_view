@@ -5,6 +5,7 @@
  */
 import type { PointCloudData } from "../../src/domain/types";
 import { buildWallNetwork } from "../src/pipeline/wallNetwork";
+import { mergeWallSegments } from "../src/pipeline/wallDedupe";
 type P = [number, number];
 export interface WallLineTrace {
   retained: number;
@@ -89,7 +90,9 @@ export function traceWallLines(cloud: PointCloudData) {
     points = points.filter(p => Math.abs((p[0] - best!.a[0]) * best!.uy - (p[1] - best!.a[1]) * best!.ux) > tolerance);
   }
   trace.segments = segments;
-  // 与 fitWallLines 一致：拟合候选直接交给墙网级连接（沿轴延长、T 形插节点、门口不连）。
-  const network = buildWallNetwork(segments);
-  return { trace, rawSegments: segments, network, segments: network.segments.map(({ a, b, support, rmsM }) => ({ a, b, support, rmsM })), evidenceCells, retained, cell, bounds: { min: [minX, minY, minZ] as [number, number, number], max: [maxX, maxY, maxZ] as [number, number, number] } };
+  // 与集成后的 fitWallLines 一致：拟合候选 → wallDedupe 合并同墙轴重复段 → wallNetwork 墙网级连接。
+  const deduped = mergeWallSegments(segments);
+  const network = buildWallNetwork(deduped.segments);
+  const joined = network.segments.map(({ a, b, support, rmsM, sourceIndex }) => { const source = deduped.segments[sourceIndex]!; return { a, b, support, rmsM, sources: source.sources ? [...source.sources] : undefined, merge: source.merge ?? null, dedupedIndex: sourceIndex }; });
+  return { trace, rawSegments: segments, deduped, network, segments: joined, evidenceCells, retained, cell, bounds: { min: [minX, minY, minZ] as [number, number, number], max: [maxX, maxY, maxZ] as [number, number, number] } };
 }
