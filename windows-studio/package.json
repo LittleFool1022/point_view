@@ -15,7 +15,8 @@
     "pack:win": "npm run build && electron-builder --win --x64 --publish never",
     "test": "vitest run --config vitest.config.ts",
     "test:ui": "playwright test --config playwright.config.ts",
-    "measure:baseline": "vite-node scripts/measure-baseline.ts"
+    "measure:baseline": "vite-node scripts/measure-baseline.ts",
+    "cleanup:case-study": "vite-node scripts/cleanup-case-study.ts"
   },
   "devDependencies": {
     "@loaders.gl/core": "4.4.4",
