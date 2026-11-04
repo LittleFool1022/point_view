@@ -9,8 +9,9 @@ import { assertRenderScene, type RenderSceneSettings } from "./renderScene";
 import { assertPairedReview, verifyPairedReview, type PairedReview, type PairedFrameReference } from "./pairedReview";
 import { assertDeviceReceipt } from "./device";
 import { assertAccuracyRecord, reportForAccuracyRecord, type AccuracyRecord } from "./accuracy";
-export interface SurveySource extends SourceInput { clips?: ClipRule[]; units: SourceUnit; synthetic: boolean }
-export interface SurveyProject { source: SurveySource; accuracy?:AccuracyRecord; pairedReview?: PairedReview; activeKeyframePage?:string; pairedReviewIndex?:PairedFrameReference[]; building?: BuildingModel; renderScene?:RenderSceneSettings; drawing?: DrawingModel; drawingStale?:boolean; annotations: CadAnnotation[]; projection: CadProjection; settings: Partial<CadDrawingSettings> }
+import { assertDimensionVerificationRecord, type DimensionVerificationRecord } from "./dimensionVerification";
+export interface SurveySource extends SourceInput { clips?: ClipRule[]; units: SourceUnit; synthetic: boolean; /** 浏览器工程内计算出的源件 SHA-256；桌面句柄哈希优先。 */ bytesSha256?: string }
+export interface SurveyProject { source: SurveySource; dimensionVerification?:DimensionVerificationRecord; accuracy?:AccuracyRecord; pairedReview?: PairedReview; activeKeyframePage?:string; pairedReviewIndex?:PairedFrameReference[]; building?: BuildingModel; renderScene?:RenderSceneSettings; drawing?: DrawingModel; drawingStale?:boolean; annotations: CadAnnotation[]; projection: CadProjection; settings: Partial<CadDrawingSettings> }
 const LIMIT = 256 * 1024 * 1024;
 async function hash(bytes: ArrayBuffer) { return [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map(x => x.toString(16).padStart(2, "0")).join(""); }
 export async function encodeProject(project: SurveyProject): Promise<Uint8Array> {
@@ -18,7 +19,7 @@ export async function encodeProject(project: SurveyProject): Promise<Uint8Array>
   const bytes = project.source.bytes ?? await project.source.file?.arrayBuffer();
   if (!bytes) throw Error("工程缺少源数据。");
   if (project.pairedReview) await verifyPairedReview(project.pairedReview, project.source);
-  const manifest = { schema: "survey-project/1", source: { name: project.source.name, units: project.source.units, synthetic: project.source.synthetic, clips: project.source.clips, sha256: await hash(bytes), deviceReceipt: project.source.deviceReceipt }, accuracy:project.accuracy, projection: project.projection, settings: project.settings, annotations: project.annotations, drawing: project.drawing, drawingStale:project.drawingStale, building: project.building, renderScene: project.renderScene, pairedReview: project.pairedReview };
+  const manifest = { schema: "survey-project/1", source: { name: project.source.name, units: project.source.units, synthetic: project.source.synthetic, clips: project.source.clips, sha256: await hash(bytes), deviceReceipt: project.source.deviceReceipt }, accuracy:project.accuracy, projection: project.projection, settings: project.settings, annotations: project.annotations, drawing: project.drawing, drawingStale:project.drawingStale, dimensionVerification: project.dimensionVerification, building: project.building, renderScene: project.renderScene, pairedReview: project.pairedReview };
   if(project.accuracy){assertAccuracyRecord(project.accuracy);if(project.building)reportForAccuracyRecord(project.building,project.accuracy);}
   if(manifest.source.deviceReceipt)assertDeviceReceipt(manifest.source.deviceReceipt,manifest.source);
   return zipSync({ "project.json": strToU8(JSON.stringify(manifest)), "source.bin": new Uint8Array(bytes) });
@@ -33,6 +34,8 @@ export function validateProjectState(m: any) {
   if(m.renderScene)assertRenderScene(m.renderScene);
   if(m.building) { assertBuildingShape(m.building); if(validateBuilding(m.building).some(i=>i.code!=="UNREVIEWED")) throw Error("工程建筑模型几何或关联关系无效。"); }
   if(m.accuracy){assertAccuracyRecord(m.accuracy);if(m.building)reportForAccuracyRecord(m.building,m.accuracy);}
+  // 核验记录只保留输入；结论在界面和导出时按当前图纸重算，过期即标未核验。
+  if(m.dimensionVerification)assertDimensionVerificationRecord(m.dimensionVerification);
   for (const o of m.building?.openings ?? []) for (const k of o.keyframes ?? []) {
     if(k.sourceSha256!==m.source.sha256) throw Error("门窗关键帧与工程原件不一致。");
     if(m.pairedReview) {
@@ -53,5 +56,5 @@ export async function decodeProject(buffer: ArrayBuffer): Promise<SurveyProject>
   const source = { name: m.source.name, units: m.source.units, synthetic: m.source.synthetic, clips: m.source.clips, deviceReceipt: m.source.deviceReceipt, bytes };
   if(source.deviceReceipt)assertDeviceReceipt(source.deviceReceipt,{name:source.name,sha256:m.source.sha256,size:bytes.byteLength});
   if(m.pairedReview)await verifyPairedReview(m.pairedReview,source);
-  return { source, accuracy:m.accuracy, pairedReview:m.pairedReview, building: m.building, renderScene:m.renderScene, drawing: m.drawing, drawingStale:m.drawingStale, annotations: m.annotations, projection: m.projection, settings: m.settings };
+  return { source, dimensionVerification:m.dimensionVerification, accuracy:m.accuracy, pairedReview:m.pairedReview, building: m.building, renderScene:m.renderScene, drawing: m.drawing, drawingStale:m.drawingStale, annotations: m.annotations, projection: m.projection, settings: m.settings };
 }

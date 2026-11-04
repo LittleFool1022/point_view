@@ -2,9 +2,14 @@ import {cadSheet} from "./sheet";
 import { dimensionGeometry, dimensionEntities, type CadDimension } from "./dimensions";
 import { validateDrawingModel, type CadEntity, type DrawingModel } from "./model";
 const pair = (code: number, value: string | number) => `${code}\n${value}`;
+/** DXF 源码中单条文字的最大字符数；超出会在写出前拒绝，不截断。 */
+export const DXF_TEXT_LIMIT = 240;
 const tags = (...parts: Array<string | number>) => parts.join("\n");
 function encodeDxfText(value: string): string {
-  return [...value.replace(/[\r\n]+/g, " ").slice(0, 240)].map(character => {
+  // 超出单条文字上限时拒绝写出，不静默截断；转义后的字符同样不超过上限。
+  const characters = [...value.replace(/[\r\n]+/g, " ")];
+  if (characters.length > DXF_TEXT_LIMIT) throw Error(`图纸文字超过 ${DXF_TEXT_LIMIT} 个字符，已拒绝导出而不是截断。`);
+  return characters.map(character => {
     const code=character.codePointAt(0)!;
     if(character==="\\")return "\\\\";
     if(code>=0x20&&code<=0x7e)return character;
@@ -99,4 +104,173 @@ export function exportCadDxf(model:DrawingModel):Uint8Array {
     tables,blocks,tags(0,"SECTION",2,"ENTITIES"),...entities,tags(0,"ENDSEC"),objects,tags(0,"EOF"),"",
   ].join("\n");
   return new TextEncoder().encode(content.replace(/\n/g,"\r\n"));
+}
+
+export interface CadTextReadbackIssue {
+  /** 导出实体身份（XDATA 1000）；块内文字为 `dimensionId:text`。 */
+  entityId:string;
+  kind:"missing"|"truncated"|"altered";
+  expected:string;
+  actual:string;
+}
+
+export interface CadDxfReadback {
+  insunits:number;
+  unitsMm:boolean;
+  measurement:number;
+  dimensionCount:number;
+  allDimensionsNative:boolean;
+  /** 原生标注块内是否找到尺寸文字；缺失不能视为通过。 */
+  dimensionTextMissing:number;
+  /** DXF 中标注测量值(42)与图纸几何的最大差异，用于区分成图误差与序列化误差。 */
+  maxDimensionDeviationMm:number;
+  /** 原生标注测量值与图纸显示的取整文字是否一致。 */
+  maxDimensionTextDeviationMm:number;
+  chinesePreserved:boolean;
+  /** 按导出实体身份比较预期与实际中文（或整段文字）的结果；缺失、截断、改字都计入。 */
+  textIssues:CadTextReadbackIssue[];
+  chineseLost:number;
+}
+
+function decodeDxfText(value:string):string {
+  return value.replace(/\\\\/g,"\u0000").replace(/\\U\+([0-9A-Fa-f]{4})/g,(_m,hex:string)=>String.fromCodePoint(parseInt(hex,16))).replace(/\u0000/g,"\\");
+}
+
+const groupPairs=(text:string):Array<[number,string]>=>{
+  const lines=text.replace(/\r\n/g,"\n").split("\n"),pairs:Array<[number,string]>=[];
+  for(let i=0;i+1<lines.length;i+=2)pairs.push([Number(lines[i]!.trim()),lines[i+1]??""]);
+  return pairs;
+};
+
+interface DxfRow { section:string; type:string; values:Map<number,string[]> }
+
+function parseRows(text:string):{rows:DxfRow[];insunits:number;measurement:number}{
+  const pairs=groupPairs(text);
+  let insunits=NaN,measurement=NaN;
+  for(let i=0;i<pairs.length;i++){
+    if(pairs[i]![0]===9&&pairs[i]![1]==="$INSUNITS")insunits=Number(pairs[i+1]?.[1]);
+    if(pairs[i]![0]===9&&pairs[i]![1]==="$MEASUREMENT")measurement=Number(pairs[i+1]?.[1]);
+  }
+  const rows:DxfRow[]=[];let row:DxfRow|undefined,section="",pendingSection=false;
+  for(const [code,value] of pairs){
+    if(code===0&&value==="SECTION"){pendingSection=true;row=undefined;continue;}
+    if(code===2&&pendingSection){section=value;pendingSection=false;continue;}
+    if(code===0){if(value)rows.push(row={section,type:value,values:new Map()});else row=undefined;continue;}
+    if(!row)continue;
+    const list=row.values.get(code);if(list)list.push(value);else row.values.set(code,[value]);
+  }
+  return {rows,insunits,measurement};
+}
+
+const textOf=(row:DxfRow,code=1)=>row.values.get(code)?.[0]??"";
+const idOf=(row:DxfRow)=>row.values.get(1000)?.[0]??"";
+
+/**
+ * 回读一段 DXF 字节：只检查序列化后的内容，不信任生成时的内存模型。
+ * 文字按导出实体身份（XDATA）比较预期与实际；缺失、截断、改字都计入 textIssues。
+ * 不替代目标 CAD 软件验收。
+ */
+export function scanDxfBytes(model:DrawingModel,bytes:Uint8Array):CadDxfReadback {
+  const {rows,insunits,measurement}=parseRows(new TextDecoder().decode(bytes));
+  const deviation=(a:number,b:number)=>Math.abs(Number((a-b).toFixed(6)));
+  let dimensionCount=0,allDimensionsNative=true,maxDimensionDeviationMm=0;
+  const dims:Array<{id:string;block:string;blockRecord:string;measured:number|undefined;expected:number|undefined}>=[];
+  /** 块名 → 块记录句柄，来自 BLOCK_RECORD 表（布局记录另记）。 */
+  const blockRecords=new Map<string,string>();
+  const modelRecords=new Set<string>(),paperRecords=new Set<string>();
+  const blockOwner=new Map<string,string>();
+  const texts:Array<{id:string;raw:string;owner:string;section:string}>=[];
+  for(const row of rows){
+    if(row.section==="TABLES"&&row.type==="BLOCK_RECORD"){
+      const name=row.values.get(2)?.[0],handle=row.values.get(5)?.[0];
+      if(name&&handle){blockRecords.set(name,handle);if(name==="*Model_Space")modelRecords.add(handle);if(name==="*Paper_Space")paperRecords.add(handle);}
+    }
+    if(row.section==="BLOCKS"){
+      if(row.type==="BLOCK"){const owner=row.values.get(330)?.[0],name=row.values.get(2)?.[0];if(owner&&name)blockOwner.set(owner,name);}
+      continue;
+    }
+    if(row.type==="DIMENSION"){
+      dimensionCount++;
+      const block=row.values.get(2)?.[0]??"",id=idOf(row),record=blockRecords.get(block)??"";
+      const measuredRaw=row.values.get(42)?.[0],measured=measuredRaw===undefined?NaN:Number(measuredRaw);
+      const definition=model.dimensions?.find(d=>d.id===id);
+      if(!block||!record||!definition||!Number.isFinite(measured))allDimensionsNative=false;
+      const expected=definition?dimensionGeometry(definition).length:undefined;
+      if(Number.isFinite(measured)&&expected!==undefined)maxDimensionDeviationMm=Math.max(maxDimensionDeviationMm,deviation(measured,expected));
+      dims.push({id,block,blockRecord:record,measured:Number.isFinite(measured)?measured:undefined,expected});
+    }
+    if(row.type==="TEXT"&&row.section==="ENTITIES"){
+      const owner=row.values.get(330)?.[0]??"";
+      if(modelRecords.has(owner)||paperRecords.has(owner))texts.push({id:idOf(row),raw:textOf(row),owner,section:"ENTITIES"});
+    }
+  }
+  // 模型空间/纸空间文字按实体身份比较；缺失、截断、改字都记录。
+  // 只比较实际会导出的实体：导出器仅写 export=true 的图层，标注显示块内文字由块内核对负责。
+  const exportedLayers=new Set(model.layers.filter(layer=>layer.export).map(layer=>layer.name));
+  const expectedTexts=model.entities
+    .filter(e=>e.type==="text"&&!e.metadata?.dimensionId&&exportedLayers.has(e.layer))
+    .map(e=>({id:e.id,text:(e as {text:string}).text}));
+  const actualById=new Map<string,string>();
+  for(const text of texts)if(text.id&&!actualById.has(text.id))actualById.set(text.id,decodeDxfText(text.raw));
+  const textIssues:CadTextReadbackIssue[]=[];
+  for(const expected of expectedTexts){
+    const actual=actualById.get(expected.id);
+    if(actual===undefined){textIssues.push({entityId:expected.id,kind:"missing",expected:expected.text,actual:""});continue;}
+    if(actual===expected.text)continue;
+    // 实际值是预期值的前缀（且更短）判为截断，其余判为改字。
+    const truncated=actual.length<expected.text.length&&expected.text.startsWith(actual);
+    textIssues.push({entityId:expected.id,kind:truncated?"truncated":"altered",expected:expected.text,actual});
+  }
+  // 原生标注块文字：按块记录句柄找到块内 TEXT，并与取整测量值比较；找不到即报错。
+  let maxDimensionTextDeviationMm=0,dimensionTextMissing=0;
+  const blockTexts=parseBlockTexts(rows,new Set(dims.map(dim=>dim.blockRecord)));
+  for(const dim of dims){
+    const definition=model.dimensions?.find(d=>d.id===dim.id);
+    const expectedText=definition?dimensionGeometry(definition).text:undefined;
+    const inBlock=blockTexts.get(dim.blockRecord)?.find(text=>text.id===`${dim.id}:text`);
+    if(!inBlock){dimensionTextMissing++;continue;}
+    const shown=decodeDxfText(inBlock.raw);
+    if(expectedText===undefined)continue;
+    if(shown!==expectedText)maxDimensionTextDeviationMm=Math.max(maxDimensionTextDeviationMm,deviation(Number(shown),Number(expectedText)));
+    if(shown!==expectedText)textIssues.push({entityId:`${dim.id}:text`,kind:expectedText.startsWith(shown)&&shown.length<expectedText.length?"truncated":"altered",expected:expectedText,actual:shown});
+  }
+  const chineseIssues=textIssues.filter(issue=>/[\u4e00-\u9fff]/.test(issue.expected));
+  return {
+    insunits,unitsMm:insunits===4,measurement,dimensionCount,allDimensionsNative,dimensionTextMissing,
+    maxDimensionDeviationMm,maxDimensionTextDeviationMm,
+    chinesePreserved:chineseIssues.length===0,textIssues,chineseLost:chineseIssues.length,
+  };
+}
+
+/** 块定义内的 TEXT，按块记录句柄分组（句柄指向块记录，不是块名）。 */
+function parseBlockTexts(rows:DxfRow[],targets:Set<string>):Map<string,Array<{id:string;raw:string;owner:string}>>{
+  const found=new Map<string,Array<{id:string;raw:string;owner:string}>>();
+  let inTarget: string | undefined;
+  for(const row of rows){
+    if(row.section!=="BLOCKS")continue;
+    if(row.type==="BLOCK"){const owner=row.values.get(330)?.[0]??"";inTarget=targets.has(owner)?owner:undefined;continue;}
+    if(row.type==="ENDBLK"){inTarget=undefined;continue;}
+    if(inTarget&&row.type==="TEXT"){
+      const list=found.get(inTarget)??[];list.push({id:idOf(row),raw:textOf(row),owner:inTarget});found.set(inTarget,list);
+    }
+  }
+  return found;
+}
+
+/** 回读当前模型自身的导出字节。 */
+export function scanDrawingReadback(model:DrawingModel):CadDxfReadback {
+  return scanDxfBytes(model,exportCadDxf(model));
+}
+
+/** 回读断言：按明确容差检查单位、标注测量值、标注文字与全部导出文字。 */
+export function validateCadDxfReadback(model:DrawingModel,toleranceMm=1e-6,bytes?:Uint8Array):CadDxfReadback {
+  const scan=bytes?scanDxfBytes(model,bytes):scanDrawingReadback(model),errors:string[]=[];
+  if(!scan.unitsMm)errors.push(`$INSUNITS=${scan.insunits}，应为 4(毫米)。`);
+  if(scan.dimensionCount!==(model.dimensions?.length??0))errors.push(`DIMENSION ${scan.dimensionCount} 个，图纸 ${model.dimensions?.length??0} 个。`);
+  if(scan.maxDimensionDeviationMm>toleranceMm)errors.push(`标注测量值最大偏差 ${scan.maxDimensionDeviationMm} mm 超过 ${toleranceMm} mm。`);
+  if(scan.dimensionTextMissing)errors.push(`${scan.dimensionTextMissing} 个标注块缺少尺寸文字。`);
+  if(scan.maxDimensionTextDeviationMm>toleranceMm)errors.push(`标注显示文字与取整测量值最大偏差 ${scan.maxDimensionTextDeviationMm} mm。`);
+  if(scan.textIssues.length)errors.push(`${scan.textIssues.length} 处导出文字与图纸不一致（缺失 ${scan.textIssues.filter(i=>i.kind==="missing").length}、截断 ${scan.textIssues.filter(i=>i.kind==="truncated").length}、改字 ${scan.textIssues.filter(i=>i.kind==="altered").length}）。`);
+  if(errors.length)throw Error(`DXF 回读不一致：${errors.join(' ')}`);
+  return scan;
 }

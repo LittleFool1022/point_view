@@ -317,7 +317,7 @@ AI 分两类接入：学习式建筑识别补充现有几何候选；生成式�
 | 设计表达 | 已有 PNG、深度/边线/模型/来源包；AI 提供方、结果保存与版本关联待补 |
 | 质量与总清单 | 已有分项检查和独立尺寸报告；统一文件 SHA256、软件/算法版本、来源与修订、复核/交付用途及未解决问题待汇总 |
 
-独立尺寸参考与核验报告目前单独导出，不随 `.pvplan` 自动保存；统一交付时需显式包含并检查是否仍匹配当前修订。工程包与客户成果包分开选择是否包含完整源件，避免未经选择重复打包大文件。
+独立尺寸参考与核验报告此前单独导出，不随 `.pvplan` 自动保存；直接点云成图的关键尺寸核验已按下节随工程保存并随 CAD 成果包导出，BIM 侧的 `survey-accuracy-record/1` 仍保持独立附件。工程包与客户成果包分开选择是否包含完整源件，避免未经选择重复打包大文件。
 
 ### 13.7 最短实施顺序与整链验收
 
@@ -464,3 +464,24 @@ Windows0.9.3原生回放：真实84,272,711字节/2,106,775点，受控1MiB预�
 实现依据：[Electron printToPDF](https://www.electronjs.org/docs/latest/api/web-contents#contentsprinttopdfoptions)、[DXF打印设置](https://ezdxf.readthedocs.io/en/stable/dxfobjects/plotsettings.html)、[纸空间视口](https://ezdxf.readthedocs.io/en/stable/tutorials/psp_viewports.html)、[PDF页面框](https://pdf-lib.js.org/docs/api/classes/pdfpage)。实际验收以本地文件和读取结果为准。
 
 本地验证位于 `/mnt/zk/3DGS/artifacts/cad-sheet-20261029/` 和 `windows-studio/artifacts/cad-sheet-20261029/`。15组图幅/比例DXF独立审计零错误/修复。2000万点原件仍全量参与，98段墙线/21个尺寸；A3无法容纳，改为A1/1:100保留全部几何且无超框或标题栏重叠。PDF实际841×594mm、98条墙线纸面长度核对、中文可提取、无栅格图像。仍有186个未连接端点，没有独立现场尺寸，不是测绘成果或施工放行。
+
+## 0.11 直接点云成图的关键尺寸核验与导出回读
+
+目标：在不等建筑模型的前提下，为点云直接生成的 CAD 图纸提供可核验的尺寸闭环，并让 DXF、PDF 与交付记录对应同一图纸修订。不重写出图流程，复用 `src/cad/dimensions.ts` 的尺寸定义与 `src/cad/sheet.ts` 的图幅逻辑。
+
+`domain/dimensionVerification.ts`：
+
+- `survey-dimension-reference/1` 记录 `drawingId`、`view`、源件 SHA-256、来源 `provenance`（独立实测或合成、方法、人员、日期、依据文件、量具）与 `entries`（尺寸编号、独立参考值 mm、容差 mm、不确定度 mm、备注）。参考值只参与判定，不写入几何、尺寸文字或标题栏。
+- 判定条件为 `|图纸未取整测量值 − 独立参考| + 不确定度 ≤ 用户容差`，参考值不能为零；取整只影响显示，不参与判定，避免非正交或非整数几何被取整改写掩盖。未取整几何、显示值、取整量子、以参考为零点的偏差区间和容差带分别记录。
+- 来源按条目记录（缺省沿用参考级来源）：追加独立实测项不会把沿用的合成条目改记为独立实测。只有独立实测项能决定结论；全部为合成/推算参考时报告状态为 `not-verified`，合成比较结果单独列出（`syntheticCounts` 与复核清单 `syntheticDimensionCheck`），复核清单 `independentFieldDimensions` 也保持 `not-verified`。
+- `survey-dimension-verification/1` 只保存输入、图纸几何指纹（尺寸编号、类型、定义点）与记录时的米/毫米换算；报告在读取与导出时重算。图纸重建、尺寸被编辑或删除、视图切换、换算变化、源件变化时记录失效，界面与成果包都不得沿用旧结论。
+- 模板只列出可标注尺寸、参考值与容差为空；导入拒绝未填写、错图纸、错源件与非正容差。
+
+`src/cad/dxf.ts:scanDxfBytes`（`scanDrawingReadback` 为其包装）与 `validateCadDxfReadback`：回读实际导出字节，检查 `$INSUNITS=4`、原生 DIMENSION 数量、标注测量值(42)与图纸几何的偏差；文字按导出实体身份（XDATA）比较预期与实际，只比较实际会导出的图层（`export=true`），缺失、截断、改字分别报告；标注块文字通过块名→块记录句柄映射定位，找不到即报缺失；单条文字超过 240 字符时在写出前拒绝而不截断。导出前发现差异时集中提示一次并写入复核清单。
+
+`domain/delivery.ts`：成果包新增 `survey-drawing/dimension-verification.json`（报告或明确的 `not-verified` 记录），复核清单的 `checks.independentFieldDimensions` 取报告结论，缺少或过期的核验保留 `not-verified`。PDF 仍与 DXF 由同一图幅检查决定是否生成。
+
+`DimensionVerificationPanel.tsx`：在图纸检查器内以折叠区呈现，选中尺寸后一次录入参考值与容差并追加；导出前不要求逐项确认，正常流程保持一次导出。
+
+验证边界：合成夹具与已知尺寸覆盖米/毫米、非正交、非整数、编辑后重导出、参考缺失、超差、过期与保存重开；独立读取用 `scripts/readback-dxf.ts`（ezdxf）核对单位与原生标注测量值。没有实采点云与独立实测尺寸时，不据此宣称现场精度或目标 CAD 软件验收。
+

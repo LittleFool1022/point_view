@@ -1302,6 +1302,91 @@ input {
   min-height: 27px;
 }
 
+/* 关键尺寸核验：复用出图设置的字号与配色，只增加状态色和紧凑结果表。 */
+.dimension-verify-box {
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+
+.dimension-verify-box > summary {
+  cursor: pointer;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.dimension-verify {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.dimension-verify-status {
+  margin: 0;
+  font-size: 11.5px;
+  padding: 4px 7px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.dimension-verify-status.ok { color: #1c6b3a; background: rgba(28, 107, 58, 0.1); }
+.dimension-verify-status.bad { color: #9a2f2f; background: rgba(154, 47, 47, 0.1); }
+.dimension-verify-status.unverified { color: #6e4712; background: rgba(210, 160, 60, 0.12); }
+
+.dimension-verify-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.dimension-verify-actions button,
+.dimension-verify-form button {
+  font-size: 11px;
+  min-height: 25px;
+  padding: 2px 7px;
+}
+
+.dimension-verify-form {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.dimension-verify-form input {
+  font-size: 11px;
+  min-height: 24px;
+}
+
+.dimension-verify-results table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10.5px;
+}
+
+.dimension-verify-results th,
+.dimension-verify-results td {
+  text-align: left;
+  padding: 2px 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.dimension-verify-results tr.bad td { color: #9a2f2f; }
+.dimension-verify-results tr.warn td { color: #6e4712; }
+
+.dimension-verify-results .link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  text-decoration: underline;
+  min-height: 0;
+  font-size: 10.5px;
+}
+
 /* 点云视图与工具箱 */
 .cloud-tools {
   position: absolute;
