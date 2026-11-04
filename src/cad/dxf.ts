@@ -100,3 +100,91 @@ export function exportCadDxf(model:DrawingModel):Uint8Array {
   ].join("\n");
   return new TextEncoder().encode(content.replace(/\n/g,"\r\n"));
 }
+
+export interface CadDxfReadback {
+  insunits:number;
+  unitsMm:boolean;
+  measurement:number;
+  dimensionCount:number;
+  allDimensionsNative:boolean;
+  /** DXF 中标注测量值(42)与图纸几何的最大差异，用于区分成图误差与序列化误差。 */
+  maxDimensionDeviationMm:number;
+  /** 原生标注测量值与图纸显示的取整文字是否一致。 */
+  maxDimensionTextDeviationMm:number;
+  chinesePreserved:boolean;
+  chineseLost:number;
+}
+
+function decodeDxfText(value:string):string {
+  return value.replace(/\\\\/g,"\u0000").replace(/\\U\+([0-9A-Fa-f]{4})/g,(_m,hex:string)=>String.fromCodePoint(parseInt(hex,16))).replace(/\u0000/g,"\\");
+}
+
+const groupPairs=(text:string):Array<[number,string]>=>{
+  const lines=text.replace(/\r\n/g,"\n").split("\n"),pairs:Array<[number,string]>=[];
+  for(let i=0;i+1<lines.length;i+=2)pairs.push([Number(lines[i]!.trim()),lines[i+1]??""]);
+  return pairs;
+};
+
+/**
+ * 回读本模块写出的 DXF：只检查序列化后的文本，不信任生成时的内存模型。
+ * 用于导出前发现单位、标注测量值与中文转义差异；不替代目标 CAD 软件验收。
+ */
+export function scanDrawingReadback(model:DrawingModel):CadDxfReadback {
+  const pairs=groupPairs(new TextDecoder().decode(exportCadDxf(model)));
+  let insunits=NaN,measurement=NaN,chineseLost=0;
+  for(let i=0;i<pairs.length;i++){
+    if(pairs[i]![0]===9&&pairs[i]![1]==="$INSUNITS")insunits=Number(pairs[i+1]?.[1]);
+    if(pairs[i]![0]===9&&pairs[i]![1]==="$MEASUREMENT")measurement=Number(pairs[i+1]?.[1]);
+  }
+  interface Row { type:string; values:Map<number,string[]> }
+  const rows:Row[]=[];let row:Row|undefined;
+  for(const [code,value] of pairs){
+    if(code===0){if(value)rows.push(row={type:value,values:new Map()});else row=undefined;continue;}
+    if(!row)continue;
+    const list=row.values.get(code);if(list)list.push(value);else row.values.set(code,[value]);
+  }
+  const deviation=(a:number,b:number)=>Math.abs(Number((a-b).toFixed(6)));
+  let dimensionCount=0,allDimensionsNative=true,maxDimensionDeviationMm=0;
+  const dims:Array<{id:string;block:string;measured:number|undefined;expected:number|undefined}>=[];
+  for(const item of rows){
+    if(item.type==="DIMENSION"){
+      dimensionCount++;
+      const block=item.values.get(2)?.[0]??"",id=item.values.get(1000)?.[0]??"";
+      const definition=model.dimensions?.find(d=>d.id===id);
+      const measuredRaw=item.values.get(42)?.[0];
+      const measured=measuredRaw===undefined?NaN:Number(measuredRaw);
+      if(!block||!definition||!Number.isFinite(measured))allDimensionsNative=false;
+      const expected=definition?dimensionGeometry(definition).length:undefined;
+      if(Number.isFinite(measured)&&expected!==undefined)maxDimensionDeviationMm=Math.max(maxDimensionDeviationMm,deviation(measured,expected));
+      dims.push({id,block,measured:Number.isFinite(measured)?measured:undefined,expected});
+    }
+    if(item.type==="TEXT"){
+      const raw=item.values.get(1)?.[0]??"";
+      if(/\\U\+[0-9A-Fa-f]{4}/.test(raw)&&decodeDxfText(raw).length<=0)chineseLost++;
+    }
+  }
+  // 原生标注块内文字必须与该标注测量值取整结果一致，避免显示值掩盖几何。
+  let maxDimensionTextDeviationMm=0;
+  for(const dim of dims){
+    if(dim.measured===undefined||dim.expected===undefined)continue;
+    const definition=model.dimensions?.find(d=>d.id===dim.id);
+    const expectedText=definition?dimensionGeometry(definition).text:undefined;
+    const blockText=rows.filter(r=>r.type==="TEXT"&&r.values.get(330)?.[0]===dim.block).map(r=>decodeDxfText(r.values.get(1)?.[0]??""));
+    const shown=blockText.find(t=>t!==undefined&&t!=="");
+    if(expectedText!==undefined&&shown!==undefined)maxDimensionTextDeviationMm=Math.max(maxDimensionTextDeviationMm,deviation(Number(shown),Number(expectedText)));
+  }
+  const chineseExpected=model.entities.some(e=>e.type==="text"&&/[\u4e00-\u9fff]/.test(e.text));
+  return {insunits,unitsMm:insunits===4,measurement,dimensionCount,allDimensionsNative,maxDimensionDeviationMm,maxDimensionTextDeviationMm,chinesePreserved:!(chineseExpected&&chineseLost>0),chineseLost};
+}
+
+/** 回读断言：按明确容差检查单位、标注测量值与中文；不通过时抛出具体差异。 */
+export function validateCadDxfReadback(model:DrawingModel,toleranceMm=1e-6):CadDxfReadback {
+  const scan=scanDrawingReadback(model),errors:string[]=[];
+  if(!scan.unitsMm)errors.push(`$INSUNITS=${scan.insunits}，应为 4(毫米)。`);
+  if(scan.dimensionCount!==(model.dimensions?.length??0))errors.push(`DIMENSION ${scan.dimensionCount} 个，图纸 ${model.dimensions?.length??0} 个。`);
+  if(scan.maxDimensionDeviationMm>toleranceMm)errors.push(`标注测量值最大偏差 ${scan.maxDimensionDeviationMm} mm 超过 ${toleranceMm} mm。`);
+  if(scan.maxDimensionTextDeviationMm>toleranceMm)errors.push(`标注显示文字与取整测量值最大偏差 ${scan.maxDimensionTextDeviationMm} mm。`);
+  if(!scan.chinesePreserved)errors.push(`${scan.chineseLost} 处中文文本未保留。`);
+  if(errors.length)throw Error(`DXF 回读不一致：${errors.join(' ')}`);
+  return scan;
+}

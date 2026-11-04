@@ -1,6 +1,9 @@
 import {STUDIO_VERSION} from "./version";
 import {createCadSheet,restyleCadDrawing} from "../../src/cad/sheet";
 import { appendDimension, type CadDimension } from "../../src/cad/dimensions";
+import { scanDrawingReadback } from "../../src/cad/dxf";
+import { DimensionVerificationPanel } from "./DimensionVerificationPanel";
+import { reportForDimensionVerification, type DimensionVerificationRecord } from "./domain/dimensionVerification";
 import type {ElevationOptions,WallElevation} from "./pipeline/wallElevation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FolderOpen, FileDown, Ruler, Building2, Image, PackageCheck, Layers, Play, X } from "lucide-react";
@@ -57,6 +60,8 @@ export function App() {
   const [editHistory, setEditHistory] = useState<{ undo: ClipRule[][]; redo: ClipRule[][] }>({ undo: [], redo: [] });
   const [dimensionKind,setDimensionKind]=useState<CadDimension['kind']>('aligned'),[dimensionMode,setDimensionMode]=useState<CadDimension['kind']>();
   const [cadHistory,setCadHistory]=useState<{undo:CadDimension[][];redo:CadDimension[][]}>({undo:[],redo:[]});
+  const [dimensionVerification,setDimensionVerification]=useState<DimensionVerificationRecord>();
+  const [selectedDimensionId,setSelectedDimensionId]=useState<string>();
   const [drawing, setDrawing] = useState<DrawingModel>(), [projection, setProjection] = useState<CadProjection>("xy"), [units, setUnits] = useState<SourceUnit>("m");
   const [importCheck, setImportCheck] = useState<ImportCheck>(), [unitConfirmed, setUnitConfirmed] = useState(false);
   const [settings, setSettings] = useState<CadDrawingSettings>({ ...DEFAULT_CAD_DRAWING_SETTINGS,alignToPrincipalAxis:true,roundingMm:1 });
@@ -100,11 +105,20 @@ export function App() {
     setPairedReview(undefined); setActiveKeyframePage(undefined); setBuilding(undefined); setAccuracy(undefined); setRenderScene({...DEFAULT_RENDER_SCENE}); setModelHistory({undo:[],redo:[]});
     setEditHistory({ undo: (next.clips ?? []).map((_, i) => next.clips!.slice(0, i)), redo: [] });
     setSource(next); setCloud(decoded.cloud); setImportCheck(check); setUnitConfirmed(false); setUnits(next.units);
-    setDrawing(undefined); setCadHistory({undo:[],redo:[]});setDimensionMode(undefined);setAnnotations([]); setPlacing(undefined); setStale(false); setDirty(true); setView("drawing");
+    setDrawing(undefined); setCadHistory({undo:[],redo:[]});setDimensionMode(undefined);setDimensionVerification(undefined);setSelectedDimensionId(undefined);setAnnotations([]); setPlacing(undefined); setStale(false); setDirty(true); setView("drawing");
     const count = decoded.cloud.sourcePointCount ?? decoded.cloud.visible.length;
     setNotice(`已导入 ${next.name} · ${count.toLocaleString()} 点 · 显示 ${decoded.cloud.visible.length.toLocaleString()} 点${next.synthetic ? " · 合成示例，非实测" : ""}`);
   }
-  async function importSource(input: SurveySource) {
+  /** 浏览器工程没有桌面句柄，源件哈希在内存中计算一次，用于尺寸核验绑定。 */
+  async function attachSourceHash(input: SurveySource): Promise<SurveySource> {
+    if (input.native?.sha256 || input.bytesSha256) return input;
+    const bytes = input.bytes ?? await input.file?.arrayBuffer();
+    if (!bytes) return input;
+    const sha = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map(v => v.toString(16).padStart(2, "0")).join("");
+    return { ...input, bytesSha256: sha };
+  }
+  async function importSource(rawInput: SurveySource) {
+    const input = await attachSourceHash(rawInput);
     const next = { ...input, key: crypto.randomUUID() };
     try {
       const decoded = await request<ImportResult>({ action: "import", source: next });
@@ -376,6 +390,12 @@ export function App() {
     const updated={...drawing,dimensions:[],entities:drawing.entities.filter(e=>!e.metadata?.dimensionId)};
     try{for(const d of next)appendDimension(updated,d);setCadHistory(mode==='undo'?{undo:cadHistory.undo.slice(0,-1),redo:[...cadHistory.redo,current]}:mode==='redo'?{undo:[...cadHistory.undo,current],redo:cadHistory.redo.slice(0,-1)}:{undo:[...cadHistory.undo,current].slice(-50),redo:[]});setDrawing(updated);setDirty(true);}catch(error){setNotice(error instanceof Error?error.message:String(error));}
   }
+  /** 只改尺寸线位置：定义点不动，尺寸数值仍随几何，不用于掩盖几何误差。 */
+  function moveDimensionLine(id:string,linePoint:[number,number]) {
+    if(!drawing||busy||stale)return;
+    changeDimensions((drawing.dimensions??[]).map(d=>d.id===id?{...d,linePoint}:d));
+    setSelectedDimensionId(id);
+  }
   function addDimension(start:[number,number],end:[number,number],linePoint:[number,number]) {
     if(!drawing||!dimensionMode)return;
     const scale=Number(settings.scale.split(':')[1])||100;
@@ -392,7 +412,31 @@ export function App() {
     }else if(drawing)setStale(true);
     setSettings(s=>({...s,...next}));setDirty(true);setPlacing(undefined);setDimensionMode(undefined);
   }
-  function exportCad() { if (!drawing || stale) return; void action("打包工程图", async () => { const result = await createSurveyDelivery(drawing, source!,window.surveyDesktop?.renderPdf); setNotice(await saveFile(result.archiveName, result.archive) ? result.plot.outsideEntityIds.length||result.plot.titleOverlapEntityIds.length?`成果已保存；存在超框或标题栏重叠，需调整图幅后导出 PDF。`:"DXF、图纸和校验清单已保存。" : "已取消保存。"); }); }
+  /** 导出前先回读 DXF，把单位、比例尺、标注测量值与中文差异集中提示，不静默修改。 */
+  function preflightReadback(model:DrawingModel) {
+    const scan=scanDrawingReadback(model),issues:string[]=[];
+    if(!scan.unitsMm)issues.push(`DXF 单位码为 ${scan.insunits}，应为毫米(4)。`);
+    if(!scan.chinesePreserved)issues.push(`有 ${scan.chineseLost} 处中文在文本转义中丢失。`);
+    if(scan.dimensionCount!==(model.dimensions?.length??0))issues.push(`回读标注 ${scan.dimensionCount} 个，与图纸 ${model.dimensions?.length??0} 个不一致。`);
+    if(scan.maxDimensionDeviationMm>1e-6)issues.push(`原生标注测量值与图纸几何最大偏差 ${scan.maxDimensionDeviationMm.toFixed(6)} mm。`);
+    if(!scan.allDimensionsNative)issues.push('DXF 中缺少原生 DIMENSION 实体或标注关联。');
+    if(scan.maxDimensionTextDeviationMm>1e-6)issues.push(`标注显示文字与几何取整不一致（最大 ${scan.maxDimensionTextDeviationMm} mm）。`);
+    return issues;
+  }
+  /** 源件身份：桌面句柄哈希优先；浏览器工程用内嵌源件哈希，再退到点云身份。 */
+  function readBackSourceId(model:DrawingModel){return source?.native?.sha256??source?.bytesSha256??`point-view://${model.drawingId}`;}
+  function exportCad() {
+    if (!drawing || stale) return;
+    void action("打包工程图", async () => {
+      const issues=preflightReadback(drawing);
+      if(issues.length&&!window.confirm(`导出前回读发现 ${issues.length} 项差异：\n${issues.join('\n')}\n\n仍要继续导出并写入复核清单吗？`))return;
+      const result = await createSurveyDelivery(drawing, source!,window.surveyDesktop?.renderPdf,{dimensionVerification,blockingIssues:issues});
+      const verified=!!dimensionVerification&&reportForDimensionVerification(drawing,dimensionVerification,readBackSourceId(drawing))!==undefined;
+      if(!(await saveFile(result.archiveName,result.archive)))return setNotice("已取消保存。");
+      const readback=issues.length?`回读有 ${issues.length} 项差异，已写入复核清单。`:"";
+      setNotice(verified?`DXF、图纸、尺寸核验与校验清单已保存。${readback}`:`成果已保存；独立尺寸未核验（${dimensionVerification?'核验记录与当前图纸不一致，已排除旧结论':'未录入独立实测参考值'}）。${readback}`);
+    });
+  }
   function exportPdf() {
     if(!drawing||stale)return;
     void action("生成图纸 PDF",async()=>{
@@ -408,10 +452,10 @@ export function App() {
       let saved = false;
       if (pairedReview) await verifyPairedReview(pairedReview, source);
       if (source.native && window.surveyDesktop) {
-        const state = { source: { name: source.name, units: source.units, synthetic: source.synthetic, clips: source.clips ?? [], deviceReceipt: source.deviceReceipt }, pairedReview, activeKeyframePage, building, accuracy, renderScene, drawing, drawingStale:stale, annotations, projection, settings };
+        const state = { source: { name: source.name, units: source.units, synthetic: source.synthetic, clips: source.clips ?? [], deviceReceipt: source.deviceReceipt }, pairedReview, activeKeyframePage, building, accuracy, dimensionVerification, renderScene, drawing, drawingStale:stale, annotations, projection, settings };
         saved = (await window.surveyDesktop.saveProject(source.native.token, state)).saved;
       } else {
-        const bytes = await encodeProject({ source, pairedReview, building, accuracy, renderScene, drawing, drawingStale:stale, annotations, projection, settings });
+        const bytes = await encodeProject({ source, pairedReview, building, accuracy, dimensionVerification, renderScene, drawing, drawingStale:stale, annotations, projection, settings });
         saved = await saveFile("测量工程.pvplan", bytes);
       }
       if (saved) { setDirty(false); setNotice("工程已保存，包含原始点云、关键帧、复核记录和出图参数，可换机打开。"); } else setNotice("已取消保存。");
@@ -439,7 +483,7 @@ export function App() {
         const bytes = f.data ?? await f.file?.arrayBuffer(); if (!bytes) throw Error("工程数据缺失。");
         p = await decodeProject(bytes);
       }
-      await importSource(p.source); setPairedReview(p.pairedReview); setActiveKeyframePage(p.activeKeyframePage);  setBuilding(p.building); setAccuracy(p.accuracy); setRenderScene(p.renderScene??{...DEFAULT_RENDER_SCENE}); setProjection(p.projection); setSettings({ ...DEFAULT_CAD_DRAWING_SETTINGS, ...p.settings }); setAnnotations(p.annotations); setDrawing(p.drawing);setStale(p.drawingStale??false); setUnits(p.source.units); setDirty(false); setNotice("测量工程已恢复。");
+      await importSource(p.source); setPairedReview(p.pairedReview); setActiveKeyframePage(p.activeKeyframePage);  setBuilding(p.building); setAccuracy(p.accuracy); setRenderScene(p.renderScene??{...DEFAULT_RENDER_SCENE}); setProjection(p.projection); setSettings({ ...DEFAULT_CAD_DRAWING_SETTINGS, ...p.settings }); setAnnotations(p.annotations); setDrawing(p.drawing);setDimensionVerification(p.dimensionVerification);setStale(p.drawingStale??false); setUnits(p.source.units); setDirty(false); setNotice("测量工程已恢复。");
     });
   }
   function cancel() { brushEpoch.current++; semanticSequence.current++; semanticClient.current?.dispose(); semanticClient.current=undefined; deliverySequence.current++; cancelIfc.current?.(); void window.surveyDesktop?.cancel(); worker.current?.terminate(); worker.current = undefined; pending.current?.reject(Error("已取消分析，原始文件和现有工程保留；下次分析会重新读取完整源点。")); pending.current = undefined; }
@@ -591,7 +635,7 @@ export function App() {
             </div>
           </header>
           <div className="drawing-canvas">
-            {drawing ? <CadPreview lightMode dimensionMode={dimensionMode} onCreateDimension={addDimension} onDeleteDimension={id=>drawing&&changeDimensions(drawing.dimensions?.filter(d=>d.id!==id)??[])} model={drawing} stale={stale} projection={projection} annotations={annotations} placingAnnotation={placing} selectedAnnotationId={selectedAnnotationId} onPlaceAnnotation={point => { if (!placing || stale || busy) return; changeAnnotations([...annotations, { ...placing, id: crypto.randomUUID(), x: point[0], y: point[1], coordinateSpace: "drawing-mm", projection }]); setPlacing(undefined); }} onMoveAnnotation={(id, p) => { if (stale || busy) return; changeAnnotations(annotations.map(a => a.id === id ? { ...a, x: p[0], y: p[1], coordinateSpace: "drawing-mm" } : a)); }} onDeleteAnnotation={id => { if (!stale && !busy) changeAnnotations(annotations.filter(a => a.id !== id)); }} onSelectedAnnotationChange={setSelectedAnnotationId}/> : <div className="cad-preview-empty">
+            {drawing ? <CadPreview lightMode dimensionMode={dimensionMode} selectedDimensionId={selectedDimensionId} onSelectedDimensionChange={setSelectedDimensionId} onMoveDimensionLine={moveDimensionLine} onCreateDimension={addDimension} onDeleteDimension={id=>drawing&&changeDimensions(drawing.dimensions?.filter(d=>d.id!==id)??[])} model={drawing} stale={stale} projection={projection} annotations={annotations} placingAnnotation={placing} selectedAnnotationId={selectedAnnotationId} onPlaceAnnotation={point => { if (!placing || stale || busy) return; changeAnnotations([...annotations, { ...placing, id: crypto.randomUUID(), x: point[0], y: point[1], coordinateSpace: "drawing-mm", projection }]); setPlacing(undefined); }} onMoveAnnotation={(id, p) => { if (stale || busy) return; changeAnnotations(annotations.map(a => a.id === id ? { ...a, x: p[0], y: p[1], coordinateSpace: "drawing-mm" } : a)); }} onDeleteAnnotation={id => { if (!stale && !busy) changeAnnotations(annotations.filter(a => a.id !== id)); }} onSelectedAnnotationChange={setSelectedAnnotationId}/> : <div className="cad-preview-empty">
               <div className="empty-card">
                 <Ruler size={22}/>
                 <strong>暂无工程图纸</strong>
@@ -624,6 +668,10 @@ export function App() {
               <button disabled={!cadHistory.undo.length||stale||!!busy} onClick={()=>changeDimensions(cadHistory.undo.at(-1)!,'undo')}>撤销尺寸</button>
               <button disabled={!cadHistory.redo.length||stale||!!busy} onClick={()=>changeDimensions(cadHistory.redo.at(-1)!,'redo')}>重做尺寸</button>
             </div>
+            <details className="dimension-verify-box" data-testid="dimension-verify-box">
+              <summary>关键尺寸核验{(()=>{const report=drawing&&dimensionVerification?reportForDimensionVerification(drawing,dimensionVerification,readBackSourceId(drawing)):undefined;return report?` · ${report.counts.failed?`${report.counts.failed} 项超差`:'均在容差内'}`:'';})()}</summary>
+              <DimensionVerificationPanel model={drawing} record={dimensionVerification} sourceSha256={drawing?readBackSourceId(drawing):undefined} selectedDimensionId={selectedDimensionId} disabled={!!busy||stale||!drawing} onChange={r=>{setDimensionVerification(r);setDirty(true);}} onSelect={id=>{setSelectedDimensionId(id);setDimensionMode(undefined);}} onNotice={setNotice}/>
+            </details>
           </div>
           <div className="inspector-section">
             <h2>工程标注</h2>

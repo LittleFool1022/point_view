@@ -1,0 +1,42 @@
+{
+  "reader": "ezdxf 1.4.5",
+  "audit": {
+    "errors": 0,
+    "fixes": 0
+  },
+  "dxfVersion": "AC1021",
+  "insunits": 4,
+  "unitsMm": true,
+  "measurement": 1,
+  "dimensionCount": 3,
+  "expectedDimensionCount": 3,
+  "maxExportDeviationMm": 0.0,
+  "dimensions": [
+    {
+      "dimensionId": "ortho",
+      "kind": "aligned",
+      "expectedMm": 8000.0,
+      "readbackMm": 8000.0,
+      "deviationMm": 0.0
+    },
+    {
+      "dimensionId": "skew",
+      "kind": "aligned",
+      "expectedMm": 10084.338778,
+      "readbackMm": 10084.338778,
+      "deviationMm": 0.0
+    },
+    {
+      "dimensionId": "noninteger",
+      "kind": "aligned",
+      "expectedMm": 5000.400004,
+      "readbackMm": 5000.400004,
+      "deviationMm": 0.0
+    }
+  ],
+  "texts": 5,
+  "chinesePreserved": true,
+  "modelUnits": "mm",
+  "toleranceMm": 1e-06,
+  "problems": []
+}

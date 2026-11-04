@@ -19,6 +19,10 @@ interface CadPreviewProps {
   dimensionMode?: CadDimension['kind'];
   onCreateDimension?(start:CadPoint2,end:CadPoint2,linePoint:CadPoint2):void;
   onDeleteDimension?(id:string):void;
+  /** 选中尺寸或改尺寸线位置时回传给外部核验面板，保持唯一选中的尺寸。 */
+  selectedDimensionId?:string;
+  onSelectedDimensionChange?(id?:string):void;
+  onMoveDimensionLine?(id:string,linePoint:CadPoint2):void;
   lightMode?: boolean;
   model?: DrawingModel;
   stale?: boolean;
@@ -86,6 +90,7 @@ function annotationScreenRect(annotation: DisplayAnnotation, point: Point) {
 
 export function CadPreview({
   dimensionMode, onCreateDimension, onDeleteDimension,
+  selectedDimensionId, onSelectedDimensionChange, onMoveDimensionLine,
   lightMode = false,
   model,
   stale = false,
@@ -101,7 +106,10 @@ export function CadPreview({
 }: CadPreviewProps) {
   const [dimensionPoints,setDimensionPoints]=useState<CadPoint2[]>([]);
   const [snapPoint,setSnapPoint]=useState<CadPoint2>();
+  /** 只改尺寸线位置，保持尺寸定义点不动，避免把旧尺寸贴到新几何。 */
+  const [lineMove,setLineMove]=useState<string>();
   useEffect(()=>{setDimensionPoints([]);setSnapPoint(undefined);},[dimensionMode,model?.drawingId,stale]);
+  useEffect(()=>{setLineMove(undefined);},[model?.drawingId,stale,dimensionMode]);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<CanvasDrag | undefined>(undefined);
@@ -326,7 +334,7 @@ export function CadPreview({
     event.currentTarget.setPointerCapture(event.pointerId);
     const rect = event.currentTarget.getBoundingClientRect();
     const point: Point = [event.clientX - rect.left, event.clientY - rect.top];
-    if (dimensionMode && !stale) { dragRef.current={mode:"dimension",x:event.clientX,y:event.clientY,moved:false};return; }
+    if ((dimensionMode || lineMove) && !stale) { dragRef.current={mode:"dimension",x:event.clientX,y:event.clientY,moved:false};return; }
     if (placingAnnotation) {
       dragRef.current = { mode: "place", x: event.clientX, y: event.clientY, moved: false };
       return;
@@ -368,6 +376,9 @@ export function CadPreview({
     if (!drag) return;
     const rect = event.currentTarget.getBoundingClientRect();
     const point: Point = [event.clientX - rect.left, event.clientY - rect.top];
+    if(drag.mode==="dimension"&&!drag.moved&&model&&lineMove&&!dimensionMode){
+      onMoveDimensionLine?.(lineMove,fromScreen(point));setLineMove(undefined);return;
+    }
     if(drag.mode==="dimension"&&!drag.moved&&model){
       const raw=fromScreen(point),p=dimensionPoints.length<2?(snapCadEndpoint(model,raw,10/scale,layer=>visibility[layer as CadLayerName]!==false)?.point??raw):raw;
       const next=[...dimensionPoints,p];
@@ -383,6 +394,7 @@ export function CadPreview({
       setSelectedId(id);
       if (link?.enabled) link.onSelectEntity(id);
       onSelectedAnnotationChange(undefined);
+      onSelectedDimensionChange?.(model?.entities.find(entity => entity.id === id)?.metadata?.dimensionId as string | undefined);
     }
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   };
@@ -398,7 +410,7 @@ export function CadPreview({
   };
   const resetView = () => { cancelAnimationFrame(focusFrameRef.current); setZoom(1); setPan([0, 0]); };
   const selected = model?.entities.find((entity) => entity.id === (link ? link.pinnedId : selectedId));
-  const selectedDimension = model?.dimensions?.find(d=>d.id===selected?.metadata?.dimensionId);
+  const selectedDimension = model?.dimensions?.find(d=>d.id===(selected?.metadata?.dimensionId??selectedDimensionId));
   const selectedAnnotation = displayAnnotations.find((annotation) => annotation.id === selectedAnnotationId);
   const layerRows = model?.layers.map((layer) => ({
     layer,
@@ -410,9 +422,10 @@ export function CadPreview({
   if (!model) return <div className="cad-preview-empty"><ScanLine /><strong>把你的空间变成图纸</strong><span>点击下方“生成图纸”，先看看空间的{projection === "xy" ? "俯视" : projection === "xz" ? "前视" : "侧视"}轮廓。</span></div>;
 
   return <div className="cad-preview-shell" data-dimension-step={dimensionPoints.length}>
+    {lineMove&&<div className="cad-dimension-hint" role="status">点击图纸放置尺寸线位置，尺寸数值随几何保持不变 · Esc 退出</div>}
     {dimensionMode&&<div className="cad-dimension-hint">{dimensionPoints.length===0?'选择尺寸起点':dimensionPoints.length===1?'选择尺寸终点':'选择尺寸线位置'} · Esc 退出</div>}
     {[...dimensionPoints,...(snapPoint?[snapPoint]:[])].map((p,i)=>{const xy=toScreen(p);return <i key={i} className="cad-snap-point" style={{left:xy[0],top:xy[1]}}/>;})}
-    {selectedDimension&&<div className="cad-dimension-properties"><span>几何尺寸 {dimensionMeasurement(selectedDimension).toFixed(3)} mm</span>{onDeleteDimension&&<button onClick={()=>onDeleteDimension(selectedDimension.id)}>删除尺寸</button>}</div>}
+    {selectedDimension&&<div className="cad-dimension-properties" data-testid="cartesian-dimension-properties"><span>图纸几何尺寸 {dimensionMeasurement(selectedDimension).toFixed(3)} mm</span>{onMoveDimensionLine&&<button aria-label="改尺寸线位置" title="再点一次图纸放置尺寸线位置，用于避开已有标注" onClick={()=>setLineMove(selectedDimension.id)}>改尺寸线位置</button>}{onDeleteDimension&&<button onClick={()=>onDeleteDimension(selectedDimension.id)}>删除尺寸</button>}</div>}
     <div className={`cad-preview-stage ${placingAnnotation ? "placing-annotation" : ""}`} ref={stageRef}>
       <div className="cad-preview-toolbar" role="toolbar" aria-label="CAD 预览工具">
         <div className="cad-view-switch"><button className={!layoutMode ? "active" : ""} aria-pressed={!layoutMode} title="空间轮廓" onClick={() => { setLayoutMode(false); resetView(); }}>轮廓</button><button className={layoutMode ? "active" : ""} aria-pressed={layoutMode} title="完整图纸" onClick={() => { setLayoutMode(true); resetView(); }}>图纸</button></div>
@@ -428,6 +441,7 @@ export function CadPreview({
         data-highlighted-entities={link?.enabled ? link.highlightedIds.join(",") : ""}
         data-drawing-center={JSON.stringify([center[0] - pan[0] / scale, center[1] + pan[1] / scale])}
         data-drawing-scale={scale}
+        data-layout-mode={layoutMode ? "full" : "model"}
         tabIndex={0}
         aria-label={dimensionMode ? "CAD 尺寸标注画布" : placingAnnotation ? `在图纸中放置标注 ${placingAnnotation.text}` : "CAD 图纸预览画布"}
         onPointerDown={onPointerDown}
