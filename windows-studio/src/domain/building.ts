@@ -13,11 +13,23 @@ export interface KeyframeObservation {
   visibleSupport?: { wallId: string; u: [number, number]; z: [number, number] };
 }
 export interface Opening { id: string; name?: string; kind: "door" | "window"; design?: OpeningDesign; detection?: OpeningDetection; keyframes?: KeyframeObservation[]; wallId: string; offsetM: number; widthM: number; heightM: number; sillM: number; evidence: Evidence }
-export interface Room { id: string; levelId: string; name: string; boundaryM: Vec2[]; heightM: number; evidence: Evidence }
+/** 房间最小面来源：组成墙段、墙网节点与由墙轴几何算出的面积/周长，用于追溯。 */
+export interface RoomLoop { wallIds: string[]; nodesM: Vec2[]; areaM2: number; perimeterM: number }
+export interface Room { id: string; levelId: string; name: string; boundaryM: Vec2[]; heightM: number; evidence: Evidence; loop?: RoomLoop }
+/** 未能成面的区域：不放弃整条连通分量，也不为凑面积虚构连接，只如实记录位置、墙段与原因。 */
+export interface UnclosedIssue {
+  id: string; levelId: string; kind: "wall-gap" | "dangling-end"; pointM: Vec2; toM?: Vec2; gapM?: number;
+  wallIds: string[]; reason: string; evidence: Evidence;
+}
 export interface BuildingModel {
   schema: "survey-building/1"; id: string; revision: number; units: "m"; up: "Z";
   sourceStamp?: string; sourceName?: string; sourceSha256?: string; assumptions?: string[];
-  levels: Level[]; walls: Wall[]; openings: Opening[]; rooms: Room[];
+  levels: Level[]; walls: Wall[]; openings: Opening[]; rooms: Room[]; unclosedIssues?: UnclosedIssue[];
+}
+/** 墙网闭合诊断计数；同时记录在模型交付检查记录中，说明房间如何从墙网得到。 */
+export interface ClosureReport {
+  walls: number; nodes: number; degreeHistogram: Record<string, number>; faces: number; rooms: number;
+  rejected: { smallFace: number; invalidBoundary: number }; unclosedIssues: { wallGap: number; danglingEnd: number };
 }
 export interface ModelIssue { elementId: string; code: string; message: string }
 export const wallLength = (w: Wall) => Math.hypot(w.axisM[1][0] - w.axisM[0][0], w.axisM[1][1] - w.axisM[0][1]);
@@ -54,7 +66,8 @@ export function assertBuildingShape(m: any): asserts m is BuildingModel {
     || !m.levels.every((l: any)=>l && typeof l.id==="string" && typeof l.name==="string" && Number.isFinite(l.elevationM))
     || !m.walls.every((w: any)=>w && typeof w.id==="string" && typeof w.levelId==="string" && Array.isArray(w.axisM) && w.axisM.length===2 && w.axisM.every(point) && evidence(w.evidence))
     || !m.openings.every((o: any)=>o && typeof o.id==="string" && ["door","window"].includes(o.kind) && typeof o.wallId==="string" && evidence(o.evidence) && (o.detection===undefined || (o.detection?.method==='wall-elevation/1' && [o.detection.cellM,o.detection.slabM,o.detection.sourcePoints,o.detection.supportPoints].every((v:any)=>Number.isFinite(v)&&v>0) && Array.isArray(o.detection.cues) && o.detection.cues.every((v:any)=>typeof v==='string') && Array.isArray(o.detection.proposalM) && o.detection.proposalM.length===4 && o.detection.proposalM.every(Number.isFinite))))
-    || !m.rooms.every((r: any)=>r && typeof r.id==="string" && typeof r.levelId==="string" && typeof r.name==="string" && Array.isArray(r.boundaryM) && r.boundaryM.length<=1000 && r.boundaryM.every(point) && evidence(r.evidence))) throw Error("建筑模型结构无效。");
+    || !m.rooms.every((r: any)=>r && typeof r.id==="string" && typeof r.levelId==="string" && typeof r.name==="string" && Array.isArray(r.boundaryM) && r.boundaryM.length<=1000 && r.boundaryM.every(point) && evidence(r.evidence) && (r.loop===undefined || (Array.isArray(r.loop.wallIds) && r.loop.wallIds.every((v:any)=>typeof v==='string') && Array.isArray(r.loop.nodesM) && r.loop.nodesM.every(point) && [r.loop.areaM2,r.loop.perimeterM].every((v:any)=>Number.isFinite(v)&&v>=0))))
+    || (m.unclosedIssues!==undefined && (!list(m.unclosedIssues) || !m.unclosedIssues.every((i: any)=>i && typeof i.id==='string' && typeof i.levelId==='string' && ["wall-gap","dangling-end"].includes(i.kind) && point(i.pointM) && (i.toM===undefined || point(i.toM)) && (i.gapM===undefined || (Number.isFinite(i.gapM)&&i.gapM>=0)) && Array.isArray(i.wallIds) && i.wallIds.every((v:any)=>typeof v==='string') && typeof i.reason==='string' && i.reason.length<=500 && evidence(i.evidence))))) throw Error("建筑模型结构无效。");
   if (!m.openings.every((o: Opening) => validKeyframes(o.keyframes))) throw Error("门窗关键帧来源无效。");
 }
 export function validateBuilding(model: BuildingModel): ModelIssue[] {
@@ -74,7 +87,9 @@ export function validateBuilding(model: BuildingModel): ModelIssue[] {
     if (![o.offsetM,o.widthM,o.heightM,o.sillM].every(Number.isFinite) || o.offsetM<0 || o.widthM<=0 || o.heightM<=0 || o.sillM<0 || o.offsetM+o.widthM>wallLength(w)+1e-7 || o.sillM+o.heightM>w.heightM+1e-7) add(o.id,"OPENING_BOUNDS","门窗超出宿主墙体或尺寸无效。");
     for (const other of model.openings) if (other.id>o.id && other.wallId===o.wallId && Math.min(o.offsetM+o.widthM,other.offsetM+other.widthM)-Math.max(o.offsetM,other.offsetM)>1e-7 && Math.min(o.sillM+o.heightM,other.sillM+other.heightM)-Math.max(o.sillM,other.sillM)>1e-7) add(o.id,"OPENING_OVERLAP","同一墙体的洞口互相重叠。");
   }
-  for (const r of model.rooms) { if (!levels.has(r.levelId)) add(r.id,"LEVEL_MISSING","房间楼层不存在。"); if (!validPolygon(r.boundaryM) || !Number.isFinite(r.heightM) || r.heightM<=0) add(r.id,"ROOM_BOUNDARY","房间边界自交、未形成有效面积或高度无效。"); }
+  for (const r of model.rooms) { if (!levels.has(r.levelId)) add(r.id,"LEVEL_MISSING","房间楼层不存在。"); if (!validPolygon(r.boundaryM) || !Number.isFinite(r.heightM) || r.heightM<=0) add(r.id,"ROOM_BOUNDARY","房间边界自交、未形成有效面积或高度无效。"); if (r.loop?.wallIds.some(id=>!model.walls.some(w=>w.id===id))) add(r.id,"ROOM_TRACE","房间组成墙段已不存在。"); }
+  // 未闭合问题如实进入检查记录：它不阻止模型保存，但阻止“全部已复核”式交付结论。
+  for (const i of model.unclosedIssues ?? []) { if (!levels.has(i.levelId)) add(i.id,"LEVEL_MISSING","未闭合问题楼层不存在。"); if (!i.wallIds.some(id=>model.walls.some(w=>w.id===id))) add(i.id,"UNCLOSED_TRACE","未闭合问题涉及的墙段已不存在。"); if (!i.evidence.confirmed) add(i.id,"UNCLOSED","墙体未闭合，未生成房间：" + i.reason); }
   return issues;
 }
 export function buildingQuantities(m: BuildingModel) {
