@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { PointCloudData } from "../../src/domain/types";
 import { buildingFromSegments, roomsFromWalls, type BuildingOptions } from "../src/domain/buildingOps";
 import { fitWallLines } from "../src/pipeline/wallLines";
+import { buildWallNetwork } from "../src/pipeline/wallNetwork";
 import { demoRoom } from "../src/domain/demo";
 
 const source = { name: "fixture.pcd", bytes: new ArrayBuffer(1), units: "m" as const, synthetic: true };
@@ -27,9 +28,18 @@ describe("墙网与房间闭合夹具",()=>{
   });
 
   it("失败模式 1：端点相距 0.3 m 的同一道墙缺口不再被当作断开（拟合抖动）",()=>{
+    // 期望的闭环是 x∈[0,8]、y∈[0,6]；缺口仍写在同一点云拟合出的墙候选上。
     const segments = [segment([0,0],[8,0]),segment([8,0],[8,6]),segment([8,6],[0,6]),segment([0,6.3],[0,0])];
-    expect(areas(segments)).toHaveLength(1);
-    expect(build(segments).rooms[0]!.boundaryM.every(p => Math.abs(p[0]) < 8 && Math.abs(p[1]) < 6.3)).toBe(true);
+    // 只连墙候选（build 不做连接，属于墙网构建前的判据），房间仍应为 0，这一格由修复 c 负责；
+    // 本步交付的是连接规则本身：墙网级连接后缺口被补上，四边构成 y∈[0,6] 的闭环。
+    expect(areas(segments)).toHaveLength(0);
+    const network = buildWallNetwork(segments);
+    expect(network.join.unclosed).toBe(0);
+    expect(network.join.dangling).toBe(0);
+    // 缺口处插入了节点：四个墙角仍是 2 度节点，另有一个 2 度的补缝节点。
+    expect(network.nodes.map(n => n.degree).sort()).toEqual([2, 2, 2, 2, 2]);
+    expect(areas(network.segments)).toHaveLength(1);
+    expect(build(network.segments).rooms[0]!.boundaryM.every(p => Math.abs(p[0]) < 8 && Math.abs(p[1]) < 6.3)).toBe(true);
   });
 
   it("失败模式 2：有 T 形隔墙的闭合环不能因分叉被判为非闭合",()=>{
