@@ -12,6 +12,9 @@
  * - 最小墙长 MIN_PIECE_M（= 拟合器保留下限 0.8 m）只约束**墙段自身**：角部收敛后任一段是否还成墙、
  *   以及"把短段拉长去够缺口"的反向延长是否回退。连接两段已确认墙体的延长段不受它拦截；
  *   延长段自己的下限是 EXTENSION_MIN_M（= 贴合容差 0.12 m 的独立性下限），只挡住"没量出来却凭空长出一段墙"。
+ * - 自由端聚类吸附（Issue #27）：上面各步都判过之后，互为最近邻、距离 ≤ FREE_END_SNAP_M 的两处**度 1 自由端**
+ *   吸附成同一个节点；这两点之间必须没有别的墙、也不跨过洞口（距离就是最短缺口）。子 0.3 m 的端点错位
+ *   来自拟合角度/端点噪声，用一条统一的吸附阶段处理，不再逐条加规则。
  * 每段墙记录"原墙候选段号 / 第几子段 / 子段总数 / 本次连接位移"，节点与边可追溯到原墙段。
  */
 
@@ -57,6 +60,10 @@ export interface JoinCounts {
   corners: number;
   /** 检查过的角部断点数（= corners 清单长度）。 */
   cornerCandidates: number;
+  /** 自由端聚类吸附（Issue #27）成功的端点数：每成功吸附一对计 2。 */
+  snaps: number;
+  /** 因吸附后会围出 < SNAP_MIN_FACE_M2 的退化面而回退的吸附次数。 */
+  revertedSnaps: number;
 }
 export interface WallNetwork {
   /** 原墙候选顺序不变；被切分时 a→b 仍沿原方向，pieceStart 按原段局部累计。 */
@@ -67,6 +74,8 @@ export interface WallNetwork {
   unclosed: UnclosedEnd[];
   /** 角部断点清单：每对"延长线可交于墙角、端点却互不共线"的自由端，与处理结果（已收敛/保持断开的原因）。 */
   corners: CornerJoin[];
+  /** 自由端聚类吸附清单（Issue #27）：对第一次遇到的自由端逐对给出间距、落点与结果，与角部清单同一口径。 */
+  snaps: FreeEndSnap[];
   /** 回退与其它可复核提示。 */
   notes: string[];
   /** 本次判定实际使用的延长口径（诊断复核用；生产运行为常量默认值）。 */
@@ -80,6 +89,8 @@ export interface ExtensionPolicies {
   pieceLengthAppliesToExtension?: boolean;
   /** 诊断对照用：按旧口径整轮跑（延长段先受最小墙长拦截，并写入 `extension-too-short`）。 */
   legacyExtensionLengthGate?: boolean;
+  /** 自由端聚类吸附半径（默认 FREE_END_SNAP_M）；0 = 关闭该阶段，只给诊断对照用。 */
+  freeEndSnapM?: number;
 }
 
 /** 贴合横向容差：拟合 RMS 上限 4.5 cm 的 2.5 倍，覆盖端点抖动又不吸收平行墙。 */
@@ -119,6 +130,44 @@ const CORNER_MIN_ANGLE = .35;
 export const CORNER_EVIDENCE_M = .3;
 /** 角部连接失败的原因，逐条列出供诊断脚本与清单使用。 */
 export type CornerSkipReason = "too-far" | "too-short" | "no-evidence";
+
+/**
+ * 自由端聚类吸附半径（Issue #27，修复 g）：只作用于度 1 自由端。
+ *
+ * 取值依据真实样本（`tri_true_color_20260911_200108_286`）其余各规则判完后的自由端最近邻距离分布：
+ * 0–0.05 m 4 处、0.05–0.12 m 0 处、0.12–0.25 m 0 处、0.25–0.5 m 4 处、>0.5 m 52 处。分布是两段的：
+ * 真正的端点错位（拟合角度/端点噪声）全部挤在 0.05 m 以内，而 0.05–0.25 m 这一整段在样本上一个都没有——
+ * 也就是说 0.05 m 以上的近邻在样本上都是"缺一段墙"的真缺口，不是端点抖动。
+ * 半径取 0.12 m（= 贴合容差 TIE_TOLERANCE_M，0.05–0.12 m 分带的上沿）：短于贴合容差就无法与"已确认墙体"区分，
+ * 同时守住 Issue 规定的 0.3 m 上限，并离 0.25 m 处的真缺口留出 0.13 m 余量。
+ * 半径不是精度阈值：拟合端另有 4.5 cm RMS 上限，本阶段不改变拟合结果，只移动端点。
+ */
+export const FREE_END_SNAP_M = TIE_TOLERANCE_M;
+/** 退化面下限：吸附后若围出小于该面积的环，说明吸附把一面墙接成窄条，回退这次吸附（与最小面提取同一口径）。 */
+export const SNAP_MIN_FACE_M2 = .5;
+/** 自由端聚类吸附的跳过原因，逐条给出供诊断脚本与清单使用。 */
+export type SnapSkipReason = "not-nearest" | "beyond-radius" | "same-wall" | "another-wall" | "degenerate-face";
+/** 一对自由端的吸附记录：两端点、间距、落点与结果（与角部断点同一清单口径）。 */
+export interface FreeEndSnap {
+  /** 两端点所在墙段与端点；`from` 为吸附前坐标。 */
+  segments: [number, number];
+  ends: ["a" | "b", "a" | "b"];
+  from: [P, P];
+  /** 吸附前两端点间距。 */
+  distanceM: number;
+  /** 落点：两墙轴交点（非平行时），否则两段端点按证据格数加权平均。 */
+  landing: P;
+  landingSource: "intersection" | "evidence-weighted";
+  /** 两段的证据格数（support），加权平均的权重来源。 */
+  evidence: [number, number];
+  /** 吸附后任一段的长度（墙轴方向未改）。 */
+  lengthAfterM: [number, number];
+  /** 处理结果：snapped = 已吸附成同一节点；skipped = 保持断开，reason 给出原因。 */
+  outcome: "snapped" | "skipped";
+  reason?: SnapSkipReason;
+  /** 原始墙候选段号（去重前的拟合编号，sources）。 */
+  sources: [number[] | undefined, number[] | undefined];
+}
 /** 角部断点：一对延长线可交于墙角、但两端点互不共线的自由端，及其处理结果。 */
 export interface CornerJoin {
   /** 待收敛的两个端点所在墙段。 */
@@ -185,6 +234,66 @@ function extendAlong(axis: Axis, end: "a" | "b", target: P): P | undefined {
 
 const endpointsAngle = (s: WallPiece) => Math.atan2(s.b[1] - s.a[1], s.b[0] - s.a[0]);
 const endpointAt = (p: P, axis: Axis): P => { const v = sub(p, axis.a), l = dot(v, [axis.ux, axis.uy]); return pointOn([axis.a[0] + axis.ux * l, axis.a[1] + axis.uy * l]); };
+/**
+ * 墙段中不参与本次移动的那一端。角部收敛与吸附只移动墙段的一端，墙轴方向由另一端决定：
+ * 轴锚点必须是"离移动端最远的那一端"，否则从 b 端移动 a 端会把墙轴方向一起拖歪。输入段方向随机，
+ * 因此不能假设 a 是锚点。
+ */
+const anchorOf = (s: WallPiece, end: "a" | "b"): P => (end === "a" ? s.b : s.a);
+/** 以 anchor 为基点、指向 from 端点的墙轴：吸附时沿这条轴把端点滑动，墙轴方向不变。 */
+function axisFrom(anchor: P, from: P): Axis {
+  const dx = from[0] - anchor[0], dy = from[1] - anchor[1], length = Math.hypot(dx, dy);
+  return { a: anchor, ux: dx / length, uy: dy / length, length };
+}
+/** 有符号多边形面积（平面图最小面的口径，与 buildingOps 一致）。 */
+const signedArea = (poly: readonly P[]) => poly.reduce((sum, p, i) => { const q = poly[(i + 1) % poly.length]!; return sum + p[0] * q[1] - q[0] * p[1]; }, 0) / 2;
+/**
+ * 吸附会不会围出退化面：把墙段端点吸附成 2 度节点后，若某条墙段成了两端共点的自环，
+ * 或两条墙段在夹角很小的节点上围出 < SNAP_MIN_FACE_M2 的窄条，就是吸附把一面墙接到了自己身上。
+ * 这里做一次最小面（平面图内环）判定，只回答"有没有小于下限的面"，不改几何。
+ */
+function formsDegenerateFace(segments: ReadonlyArray<{ a: P; b: P }>, limit: number): boolean {
+  const nodes: P[] = [];
+  const nodeAt = (p: P) => { const found = nodes.findIndex(q => distance(q, p) <= VERTEX_MERGE_M); if (found >= 0) return found; nodes.push(p); return nodes.length - 1; };
+  const edges: [number, number][] = [];
+  for (const s of segments) { const u = nodeAt(s.a), v = nodeAt(s.b); if (u === v) return true; edges.push([u, v]); }
+  const outgoing = nodes.map(() => [] as { to: number; angle: number; edge: number }[]);
+  edges.forEach(([u, v], index) => {
+    const angle = Math.atan2(nodes[v]![1] - nodes[u]![1], nodes[v]![0] - nodes[u]![0]);
+    outgoing[u]!.push({ to: v, angle, edge: index });
+    outgoing[v]!.push({ to: u, angle: angle > 0 ? angle - Math.PI : angle + Math.PI, edge: index });
+  });
+  const halfId = (from: number, edge: number) => (edges[edge]![0] === from ? edge * 2 : edge * 2 + 1);
+  const seen = new Set<number>();
+  for (let index = 0; index < edges.length; index++) for (const from of edges[index]!) {
+    if (seen.has(halfId(from, index))) continue;
+    const ring: number[] = [];
+    let current = from, currentEdge = index;
+    for (let guard = 0; guard <= edges.length * 2 + 1; guard++) {
+      seen.add(halfId(current, currentEdge));
+      ring.push(current);
+      const to = edges[currentEdge]![0] === current ? edges[currentEdge]![1] : edges[currentEdge]![0];
+      // 转角最小（顺时针最近邻）的半边走法：从 to 出发、相对来向转得最少的那条边是同一个面的下一条边。
+      const back = Math.atan2(nodes[current]![1] - nodes[to]![1], nodes[current]![0] - nodes[to]![0]);
+      let next: { to: number; angle: number; edge: number } | undefined, bestTurn = Infinity;
+      for (const candidate of outgoing[to]!) {
+        if (candidate.edge === currentEdge) continue;
+        let turn = back - candidate.angle;
+        while (turn <= 0) turn += 2 * Math.PI;
+        while (turn > 2 * Math.PI) turn -= 2 * Math.PI;
+        if (turn < bestTurn - 1e-12) { bestTurn = turn; next = candidate; }
+      }
+      if (!next) break;
+      current = to; currentEdge = next.edge;
+      if (current === from && currentEdge === index) {
+        if (ring.length >= 3 && Math.abs(signedArea(ring.map(i => nodes[i]!))) < limit) return true;
+        break;
+      }
+    }
+  }
+  return false;
+}
+
 /** 两条墙轴的延长线交点；平行（方向正弦差 ≤ 1e-6）时返回 undefined。 */
 function intersectionOf(x: Axis, y: Axis): P | undefined {
   const denominator = cross([x.ux, x.uy], [y.ux, y.uy]);
@@ -538,19 +647,141 @@ function buildNetwork<T extends { a: P; b: P; support: number; rmsM: number }>(i
     return cornerCandidate(segments.indexOf(own), end, segments.indexOf(far), other, false)?.record.reason;
   }
 
-  // 4) 端点合并成墙网节点（半径 VERTEX_MERGE_M），记录每个节点连接的墙。
-  const nodes: WallNode[] = [];
-  const nodeOf = (p: P) => {
+  // 3c) 自由端聚类吸附（Issue #27，修复 g）：上面各步判完之后仍为度 1 的自由端，如果它的最近邻是另一个自由端、
+  //     端点直线距离 ≤ FREE_END_SNAP_M、两点之间没有别的墙（距离就是最短缺口，不跨墙也不跨洞口），就把两端吸附成
+  //     同一个节点。落点优先取两墙轴的延长线交点（墙轴方向不变、不拉斜线），两轴平行时取两端点按证据格数加权平均。
+  //     吸附只改端点坐标，不改墙轴方向的拟合来源记录（sources / rmsM / support 原样保留）。
+  //     吸附后若围出 < SNAP_MIN_FACE_M2 的退化面，回退这次吸附并记录。
+  const snapRadius = policies.freeEndSnapM ?? FREE_END_SNAP_M;
+  const snaps: FreeEndSnap[] = [];
+  /** 已成功吸附的条目（`snaps` 里只保留一次判定：跳过项逐对一条，吸附项每对一条）。 */
+  const joins: FreeEndSnap[] = [];
+  /** 已判定过的自由端，避免同一条在后续扫描里重复出清单。 */
+  const snapped = new Set<string>();
+  const snapKey = (i: number, end: "a" | "b") => `${i}:${end}`;
+  /** 当前的墙网节点（与第 4 步同一口径），只用于判定"谁还是度 1 自由端"。 */
+  const nodeOf = (p: P, nodes: WallNode[]) => {
     const found = nodes.findIndex(n => distance(n.p, p) <= VERTEX_MERGE_M);
     if (found >= 0) return found;
     nodes.push({ id: nodes.length, p: pointOn(p), degree: 0, walls: [] });
     return nodes.length - 1;
   };
-  const ends = segments.map(s => [nodeOf(s.a), nodeOf(s.b)] as const);
-  ends.forEach(([a, b], i) => {
-    const source = segments[i]!.sourceIndex;
-    for (const n of new Set([a, b])) { nodes[n]!.degree++; if (!nodes[n]!.walls.includes(source)) nodes[n]!.walls.push(source); }
-  });
+  /** 墙网节点与每条墙段两端的节点号；`into` 传入时复用同一份节点表（判定用，不改几何）。 */
+  const topology = (into?: WallNode[]) => {
+    const nodes = into ?? [];
+    const pairs = segments.map(s => [nodeOf(s.a, nodes), nodeOf(s.b, nodes)] as const);
+    for (const n of nodes) { n.degree = 0; n.walls = []; }
+    pairs.forEach(([a, b], i) => {
+      const source = segments[i]!.sourceIndex;
+      // 度数按墙段计：一段墙接在节点上就是一个度，与第 4 步的节点口径一致。
+      nodes[a]!.degree++; nodes[b]!.degree++;
+      for (const n of new Set([a, b])) if (!nodes[n]!.walls.includes(source)) nodes[n]!.walls.push(source);
+    });
+    return { nodes, pairs };
+  };
+  /**
+   * 自由端的最近邻自由端。距离是两端点的直线距离，也是这一对之间的最短缺口：若两点间还隔着别的墙
+   * （端点离第三个墙段更近）就不算吸附对象——不跨墙、不跨洞口连接。
+   */
+  const nearestFreeEnd = (i: number, end: "a" | "b", nodes: ReadonlyArray<WallNode>, pairs: ReadonlyArray<readonly [number, number]>) => {
+    const p = endpointOf(segments[i]!, end);
+    let best: { j: number; end: "a" | "b"; d: number } | undefined;
+    segments.forEach((other, j) => {
+      if (j === i) return;
+      for (const o of ["a", "b"] as const) {
+        if (nodes[pairs[j]![o === "a" ? 0 : 1]]!.degree !== 1) continue;
+        const d = distance(p, endpointOf(other, o));
+        if (!best || d < best.d - 1e-9) best = { j, end: o, d };
+      }
+    });
+    return best;
+  };
+  /**
+   * 自由端 p 离第三个墙段**自身**的最近距离（丁字接头、子段端点都算）；中间有墙时吸附就不成立。
+   * 只量到墙段本身，不量到它的无限延长线：同一条墙轴上更远处的另一段墙不算"中间有墙"，
+   * 否则同一道墙上相邻的两处缺口永远无法吸附。
+   */
+  const nearestOtherWall = (i: number, k: number, p: P) => {
+    let gap = Infinity;
+    segments.forEach((other, j) => {
+      if (j === i || j === k) return;
+      const axis = axisOf(other), { t } = project(axis, p);
+      const q = t < 0 ? other.a : t > 1 ? other.b : at(other, t);
+      gap = Math.min(gap, distance(p, q));
+    });
+    return gap;
+  };
+  if (snapRadius > 0) {
+    for (let guard = 0; guard < 64; guard++) {
+      const { nodes, pairs } = topology([]);
+      // 度 1 判定要读节点自身的度数：`pairs` 给的是节点号，不是度数。
+      const free = segments.flatMap((_, i) => (["a", "b"] as const).map(end => ({ i, end }))).filter(e => nodes[pairs[e.i]![e.end === "a" ? 0 : 1]]!.degree === 1 && !snapped.has(snapKey(e.i, e.end)));
+      let acted = false;
+      for (const { i, end } of free) {
+        const own = segments[i]!, p = endpointOf(own, end);
+        const best = nearestFreeEnd(i, end, nodes, pairs);
+        const record = (outcome: "snapped" | "skipped", extra: { reason?: SnapSkipReason; landing?: P; landingSource?: FreeEndSnap["landingSource"]; j?: number; other?: "a" | "b"; q?: P }) => ({
+          segments: [own.sourceIndex, extra.j === undefined ? -1 : segments[extra.j]!.sourceIndex] as [number, number],
+          ends: [end, extra.other ?? "a"] as ["a" | "b", "a" | "b"], from: [pointOn(p), pointOn(extra.q ?? p)] as [P, P],
+          distanceM: Math.round(distance(p, extra.q ?? p) * 1000) / 1000,
+          landing: pointOn(extra.landing ?? [(p[0] + (extra.q?.[0] ?? p[0])) / 2, (p[1] + (extra.q?.[1] ?? p[1])) / 2]),
+          landingSource: extra.landingSource ?? "evidence-weighted", evidence: [own.support, extra.j === undefined ? 0 : segments[extra.j]!.support] as [number, number],
+          lengthAfterM: [0, 0] as [number, number], outcome, reason: extra.reason,
+          sources: [own.sources, extra.j === undefined ? undefined : segments[extra.j]!.sources] as [number[] | undefined, number[] | undefined],
+        });
+        if (!best) { snapped.add(snapKey(i, end)); snaps.push(record("skipped", { reason: "not-nearest" })); continue; }
+        const far = segments[best.j]!, q = endpointOf(far, best.end);
+        // 互为最近邻才算一对：只单向最近的端点不吸附，避免把第三个端点漏在半径边界上。
+        const mirror = nearestFreeEnd(best.j, best.end, nodes, pairs);
+        if (!mirror || mirror.j !== i || mirror.end !== end) { snapped.add(snapKey(i, end)); snaps.push(record("skipped", { reason: "not-nearest", j: best.j, other: best.end, q })); continue; }
+        // 每个端点只判定一次：同一对的镜像顺序不再重复判定。
+        if (snapped.has(snapKey(best.j, best.end))) continue;
+        snapped.add(snapKey(i, end)); snapped.add(snapKey(best.j, best.end));
+        const base = { j: best.j, other: best.end, q };
+        if (best.j === i) { snaps.push(record("skipped", { ...base, reason: "same-wall" })); continue; }
+        if (best.d > snapRadius + 1e-9) { snaps.push(record("skipped", { ...base, reason: "beyond-radius", landing: q })); continue; }
+        // 中间隔着别的墙（例如同一原墙段被贴合切分出的另一子段）：不跨墙吸附。
+        if (nearestOtherWall(i, best.j, p) + 1e-6 < best.d || nearestOtherWall(best.j, i, q) + 1e-6 < best.d) { snaps.push(record("skipped", { ...base, reason: "another-wall", landing: q })); continue; }
+        // 落点：两墙轴延长线交点（沿各自墙轴滑动，不拉斜线）；平行时取端点按证据格数加权平均。
+        // 近共线的一对（夹角几分之一度）交点会落在几十米外，沿轴滑过去等于把两段墙都拉长几十米，
+        // 那不是"吸附端点"而是"重新造墙"：交点距离超出吸附半径时按平行处理。
+        const ownAnchor = anchorOf(own, end), farAnchor = anchorOf(far, best.end);
+        const ownAxis = axisFrom(ownAnchor, p), farAxis = axisFrom(farAnchor, q);
+        const hitAt = intersectionOf(ownAxis, farAxis);
+        const hit = hitAt && distance(hitAt, p) <= snapRadius && distance(hitAt, q) <= snapRadius ? hitAt : undefined;
+        // 没有可用交点时退到端点按证据格数加权平均，再把这个落点投到证据较多的那一方的墙轴上：
+        // 平均点落在两条不平行的轴之间，直接用它会把两段墙的方向各扭一点（等于改了拟合来源），
+        // 投轴后只有证据较少的一方沿自身轴线横向对齐，墙轴方向仍来自各自拟合。
+        const weighted = pointOn([(p[0] * own.support + q[0] * far.support) / (own.support + far.support), (p[1] * own.support + q[1] * far.support) / (own.support + far.support)]);
+        const stronger = own.support >= far.support ? ownAxis : farAxis;
+        const landing = hit ?? endpointAt(weighted, stronger);
+        const entry = record("snapped", { ...base, landing, landingSource: hit ? "intersection" : "evidence-weighted" });
+        // 退化面联动检查：吸附后任一段成了自环或围出 < SNAP_MIN_FACE_M2 的窄条就回退（不改几何）。
+        const next = segments.map((s, k) => (k === i ? setEndpoint(s, end, landing) : k === best.j ? setEndpoint(s, best.end, landing) : s));
+        if (formsDegenerateFace(next, SNAP_MIN_FACE_M2)) { snaps.push({ ...entry, outcome: "skipped", reason: "degenerate-face" }); reverted++; continue; }
+        segments[i] = setEndpoint(own, end, landing);
+        segments[best.j] = setEndpoint(far, best.end, landing);
+        touched.add(`${own.sourceIndex}`); touched.add(`${segments[best.j]!.sourceIndex}`);
+        moved.add(`${own.sourceIndex}:${end}`); moved.add(`${segments[best.j]!.sourceIndex}:${best.end}`);
+        // 与这两个端点共点、且本轮尚未被连接动过的其它墙端随之一并对齐（同一顶点上的第三面墙）。
+        for (let k = 0; k < segments.length; k++) {
+          if (k === i || k === best.j || touched.has(`${segments[k]!.sourceIndex}`)) continue;
+          for (const o of ["a", "b"] as const) {
+            const atEnd = endpointOf(segments[k]!, o);
+            if (distance(atEnd, p) <= VERTEX_MERGE_M || distance(atEnd, q) <= VERTEX_MERGE_M) segments[k] = setEndpoint(segments[k]!, o, landing);
+          }
+        }
+        const done = { ...entry, lengthAfterM: [Math.round(distance(segments[i]!.a, segments[i]!.b) * 1000) / 1000, Math.round(distance(segments[best.j]!.a, segments[best.j]!.b) * 1000) / 1000] as [number, number] };
+        joins.push(done); snaps.push(done);
+        acted = true;
+        break;
+      }
+      if (!acted) break;
+    }
+  }
+
+  // 4) 端点合并成墙网节点（半径 VERTEX_MERGE_M），记录每个节点连接的墙。
+  const { nodes, pairs: ends } = topology();
 
   // 5) 悬空端逐条给出原因。洞口判定优先于"未对齐"，避免把门口说成对齐问题。
   const unclosed: UnclosedEnd[] = [];
@@ -597,13 +828,15 @@ function buildNetwork<T extends { a: P; b: P; support: number; rmsM: number }>(i
     }
   });
   if (splits) notes.push(`${insertedNodes} 次在既有墙上插入节点，墙段由 ${input.length} 条切分为 ${segments.length} 条，节点与边保留原墙候选段号。`);
+  if (snaps.length) notes.push(`自由端聚类吸附（半径 ${snapRadius} m）：${joins.length} 对自由端吸附成同一节点，${snaps.length - joins.length} 对判定后保持断开（原因见吸附清单）。`);
 
   const join: JoinCounts = {
     endpoints: segments.length * 2, connected: segments.length * 2 - dangling, opening, unclosed: tooLarge, dangling,
     joined, extensions, insertedNodes, splits, revertedExtensions: reverted,
     corners: stillOpen.filter(c => c.outcome === "joined").length, cornerCandidates: stillOpen.length,
+    snaps: joins.length * 2, revertedSnaps: reverted,
   };
   const openCorners = stillOpen.filter(c => c.outcome === "skipped").length;
   if (stillOpen.length) notes.push(`角部断点 ${stillOpen.length} 处：${stillOpen.length - openCorners} 处收敛到延长线交点，${openCorners} 处保持断开（原因见角部清单）。`);
-  return { segments, nodes, edges: segments.length, join, unclosed, corners: stillOpen, notes, policies: reportPolicies };
+  return { segments, nodes, edges: segments.length, join, unclosed, corners: stillOpen, snaps, notes, policies: reportPolicies };
 }

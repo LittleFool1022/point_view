@@ -13,7 +13,7 @@ import { basename } from "node:path";
 import { readCloud } from "../src/pipeline/binaryPcd";
 import { fitWallLines } from "../src/pipeline/wallLines";
 import { DEDUPE_AXIS_GAP_M, DEDUPE_DIRECTION_DEG, DEDUPE_PROJECTION_GAP_M, mergeWallSegments } from "../src/pipeline/wallDedupe";
-import { EXTENSION_MIN_M, MAX_EXTENSION_M, MIN_PIECE_M, OPENING_M, TIE_TOLERANCE_M, VERTEX_MERGE_M, buildWallNetwork } from "../src/pipeline/wallNetwork";
+import { EXTENSION_MIN_M, FREE_END_SNAP_M, MAX_EXTENSION_M, MIN_PIECE_M, OPENING_M, TIE_TOLERANCE_M, VERTEX_MERGE_M, buildWallNetwork } from "../src/pipeline/wallNetwork";
 import { buildingFromSegments, levelClosure, roomsFromWalls } from "../src/domain/buildingOps";
 import { traceWallLines } from "./replay-wall-lines";
 import type { PointCloudData } from "../../src/domain/types";
@@ -241,6 +241,35 @@ function blockage(index: number, end: "a" | "b", network: ReturnType<typeof buil
   found.sort((x, y) => (x.holeM as number) - (y.holeM as number));
   return { segmentIndex: index, end, pointM: source.map(round) as P, candidates: found.slice(0, 3) };
 }
+// ---- 自由端聚类吸附诊断（修复 g，Issue #27）--------------------------------------------------
+// 同一份去重墙候选跑两遍：关掉吸附（freeEndSnapM: 0，只给诊断用）得到"吸附前"的墙网，再按生产口径得到"吸附后"。
+// "吸附前"的自由端就是其余各规则全部判完之后真正剩下的悬空端，吸附半径据此对齐实测分布。
+const networkBeforeSnap = buildWallNetwork(before.segments, { freeEndSnapM: 0 });
+const degreeHistogramOf = (n: ReturnType<typeof buildWallNetwork>) => n.nodes.reduce((acc: Record<string, number>, node) => ({ ...acc, [node.degree]: (acc[node.degree] ?? 0) + 1 }), {});
+/** 墙网自由端（度 1 节点上的墙端）。 */
+const freeEndsOf = (n: ReturnType<typeof buildWallNetwork>) => n.segments.flatMap((s, i) => (["a", "b"] as const).map(end => ({ i, end, p: (end === "a" ? s.a : s.b) as P }))).filter(e => n.nodes.find(node => distance(node.p, e.p) <= VERTEX_MERGE_M)?.degree === 1);
+/** 每个自由端的最近邻自由端距离，按 Issue 要求的分带计数。 */
+const freeEndPairsOf = (ends: ReturnType<typeof freeEndsOf>) => ends.map(a => { let best = { j: -1, end: "a" as "a" | "b", gap: Infinity }; for (const b of ends) { if (b.i === a.i && b.end === a.end) continue; const g = distance(a.p, b.p); if (g < best.gap) best = { j: b.i, end: b.end, gap: g }; } return { i: a.i, end: a.end, pointM: a.p.map(round) as P, nearestSegment: best.j, nearestEnd: best.end, gapM: Math.round(best.gap * 1000) / 1000 }; });
+const bands = (pairs: ReturnType<typeof freeEndPairsOf>) => {
+  const edges = [[0, .05], [.05, .12], [.12, .25], [.25, .5], [.5, Infinity]] as const;
+  return edges.map(([lo, hi]) => ({ band: hi === Infinity ? `>${lo}` : `${lo}-${hi}`, count: pairs.filter(x => x.gapM >= lo && x.gapM < hi).length }));
+};
+const beforeSnapEnds = freeEndsOf(networkBeforeSnap), beforeSnapPairs = freeEndPairsOf(beforeSnapEnds);
+const snapReport = {
+  // 半径与取值依据（分布见 §bandsBefore）：命名常量在 wallNetwork.ts 的 FREE_END_SNAP_M。
+  radiusM: FREE_END_SNAP_M,
+  before: { segments: networkBeforeSnap.segments.length, nodes: networkBeforeSnap.nodes.length, degreeHistogram: degreeHistogramOf(networkBeforeSnap), dangling: networkBeforeSnap.join.dangling, pairs: beforeSnapPairs.length },
+  after: { segments: network.segments.length, nodes: network.nodes.length, degreeHistogram: degreeHistogramOf(network), dangling: network.join.dangling, pairs: freeEndPairsOf(freeEndsOf(network)).length },
+  bandsBefore: bands(beforeSnapPairs),
+  bandsAfter: bands(freeEndPairsOf(freeEndsOf(network))),
+  // 半径内（≤ radiusM）的自由端对：吸附前有多少、吸附后还剩多少，逐对给出结果与原因。
+  withinRadiusBefore: beforeSnapPairs.filter(x => x.gapM <= FREE_END_SNAP_M).length,
+  withinRadiusAfter: freeEndPairsOf(freeEndsOf(network)).filter(x => x.gapM <= FREE_END_SNAP_M).length,
+  records: network.snaps,
+  joins: network.snaps.filter(r => r.outcome === "snapped"),
+  skipped: network.snaps.filter(r => r.outcome !== "snapped"),
+  join: { snaps: network.join.snaps, revertedSnaps: network.join.revertedSnaps },
+};
 const extensionReport = {
   policies: network.policies,
   // 旧口径复跑（同一去重输入）：延长段也按最小墙长拦截时的计数，用来复现并对照基线。
@@ -312,6 +341,8 @@ const report = {
       unclosedByCornerReason: network.unclosed.reduce((acc: Record<string, number>, u) => (u.corner ? { ...acc, [u.corner]: (acc[u.corner] ?? 0) + 1 } : acc), {}),
       pairs: network.corners,
     },
+    // 5) 自由端聚类吸附（修复 g，Issue #27）：吸附前后的自由端构成、半径内的对数与逐对结果。
+    snaps: snapReport,
     sourcePoints: working.visible.length, inHeightBandPoints: inBand, evidenceCells: fitted.evidenceCells,
     fittedSegments: fitted.fittedSegments, dedupedSegments: fitted.dedupedSegments, joinedSegments: segments.length, mergedGroups: fitted.mergeGroups.length,
     wallCandidates: segments.length, openingsAutoDetected: 0,
@@ -344,6 +375,8 @@ const report = {
 await writeFile(`${out}/diagnosis.json`, JSON.stringify(report, null, 2));
 await writeFile(`${out}/segments.json`, JSON.stringify(segments));
 await writeFile(`${out}/segments-before-merge.json`, JSON.stringify(replaySegments));
+// 去重后、吸附前的墙候选：吸附前后对照图的共同输入，两遍复跑都从这里读，避免读到已经吸附过的结果。
+await writeFile(`${out}/segments-deduped.json`, JSON.stringify(before.segments));
 const all = segments.flatMap(s => [s.a, s.b]), minX = Math.min(...all.map(p => p[0])), maxX = Math.max(...all.map(p => p[0])), minY = Math.min(...all.map(p => p[1])), maxY = Math.max(...all.map(p => p[1])), pad = Math.max(1, (maxX - minX + maxY - minY) / 40);
 const colour: Record<string, string> = { wall: "#dceee8", duplicate: "#e0b25c", artifact: "#c96b6b", suspect: "#7fb0d8" };
 await writeFile(`${out}/walls-candidates.svg`, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${minX - pad} ${-maxY - pad} ${maxX - minX + 2 * pad} ${maxY - minY + 2 * pad}" width="1400" height="900"><rect x="${minX - pad}" y="${-maxY - pad}" width="${maxX - minX + 2 * pad}" height="${maxY - minY + 2 * pad}" fill="#20282c"/>${replaySegments.map((s) => `<line x1="${s.a[0]}" y1="${-s.a[1]}" x2="${s.b[0]}" y2="${-s.b[1]}" stroke="#dceee8" stroke-width="${pad / 200}"/>`).join("")}</svg>`);
