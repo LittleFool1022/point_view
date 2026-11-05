@@ -6,6 +6,9 @@
  * - 贴合：端点落在另一墙轴线段范围内、横向偏差 ≤ TIE_TOLERANCE_M 时，把端点投到该墙轴上，
  *   并在这面墙上插入墙网节点（T 形/丁字连接）；被穿过的墙在该节点处分段。
  * - 角接：同一顶点（≤ VERTEX_MERGE_M）汇合 ≥2 条非共线墙的端部对齐到该节点；穿过顶点的共线墙不在此打断。
+ * - 同轴串联桥接（Issue #29）：沿轴延长之前先处理"两段近共线、投影不重叠、轴向缺口 ≤ MAX_EXTENSION_M、
+ *   横向错位 ≤ SERIES_TIE_M"的串联对：两段各沿自身墙轴接到同一落点，横向错位由两段各让一半；
+ *   贴合、角接、沿轴延长的容差都不变。
  * - 延长：缺口 ≤ MAX_EXTENSION_M 且只沿某一方的墙轴延长线（另一端点在对方轴线延长线上 ≤ TIE_TOLERANCE_M）
  *   才把被延长的一方延伸到对方端点上；延长段与原段同轴，不产生斜线。
  * - 洞口：缺口 ≥ OPENING_M 一律视为洞口/门口，绝不补墙；MAX_EXTENSION_M–OPENING_M 之间不连接并列入未闭合清单。
@@ -17,6 +20,8 @@
  *   来自拟合角度/端点噪声，用一条统一的吸附阶段处理，不再逐条加规则。
  * 每段墙记录"原墙候选段号 / 第几子段 / 子段总数 / 本次连接位移"，节点与边可追溯到原墙段。
  */
+
+import { DEDUPE_AXIS_GAP_M, DEDUPE_DIRECTION_DEG } from "./wallDedupe";
 
 type P = [number, number];
 
@@ -64,6 +69,8 @@ export interface JoinCounts {
   snaps: number;
   /** 因吸附后会围出 < SNAP_MIN_FACE_M2 的退化面而回退的吸附次数。 */
   revertedSnaps: number;
+  /** 同轴串联桥接（Issue #29）成功的端点数：每桥接一对计 2。 */
+  seriesBridges: number;
 }
 export interface WallNetwork {
   /** 原墙候选顺序不变；被切分时 a→b 仍沿原方向，pieceStart 按原段局部累计。 */
@@ -76,6 +83,8 @@ export interface WallNetwork {
   corners: CornerJoin[];
   /** 自由端聚类吸附清单（Issue #27）：对第一次遇到的自由端逐对给出间距、落点与结果，与角部清单同一口径。 */
   snaps: FreeEndSnap[];
+  /** 同轴串联桥接清单（Issue #29）：逐对给出轴向断口、横向错位与结果，与角部/吸附清单同一口径。 */
+  series: SeriesBridge[];
   /** 回退与其它可复核提示。 */
   notes: string[];
   /** 本次判定实际使用的延长口径（诊断复核用；生产运行为常量默认值）。 */
@@ -91,6 +100,8 @@ export interface ExtensionPolicies {
   legacyExtensionLengthGate?: boolean;
   /** 自由端聚类吸附半径（默认 FREE_END_SNAP_M）；0 = 关闭该阶段，只给诊断对照用。 */
   freeEndSnapM?: number;
+  /** 同轴串联桥接的横向贴合容差（默认 SERIES_TIE_M）；0 = 关闭该阶段，只给诊断对照用。 */
+  seriesTieM?: number;
 }
 
 /** 贴合横向容差：拟合 RMS 上限 4.5 cm 的 2.5 倍，覆盖端点抖动又不吸收平行墙。 */
@@ -143,8 +154,19 @@ export type CornerSkipReason = "too-far" | "too-short" | "no-evidence";
  * 半径不是精度阈值：拟合端另有 4.5 cm RMS 上限，本阶段不改变拟合结果，只移动端点。
  */
 export const FREE_END_SNAP_M = TIE_TOLERANCE_M;
+/** 串联桥接的软带半径：端点 SEAM_MARGIN_M（= 贴合容差）以内有端点落着的第三方墙段不算隔墙。 */
+const SEAM_MARGIN_M = TIE_TOLERANCE_M;
 /** 退化面下限：吸附后若围出小于该面积的环，说明吸附把一面墙接成窄条，回退这次吸附（与最小面提取同一口径）。 */
 export const SNAP_MIN_FACE_M2 = .5;
+/**
+ * 同轴串联桥接的横向贴合容差（Issue #29，修复 h）。
+ * 沿轴延长原本要求两端横向偏差 ≤ TIE_TOLERANCE_M（0.12 m）；串联缺口（同一道墙被拟合成首尾两段）在近共线时
+ * 横向错位可到 0.12–0.15 m 量级，被这条贴合容差拒掉。取值依据真实样本（`tri_true_color_20260911_200108_286`）
+ * 投影不重叠、轴向缺口 ≤ MAX_EXTENSION_M 的串联对横向错位分布：0–0.04: 18、0.04–0.08: 15、0.08–0.12: 12、
+ * 0.12–0.15: 4（全表见 `scripts/survey-series-gaps.ts`）。上界取去重判据的轴间距 DEDUPE_AXIS_GAP_M（0.15 m）：
+ * 与去重"同一墙轴"同一尺度，超过它就不再是同一道墙，交给角部连接或未闭合清单。
+ */
+export const SERIES_TIE_M = DEDUPE_AXIS_GAP_M;
 /** 自由端聚类吸附的跳过原因，逐条给出供诊断脚本与清单使用。 */
 export type SnapSkipReason = "not-nearest" | "beyond-radius" | "same-wall" | "another-wall" | "degenerate-face";
 /** 一对自由端的吸附记录：两端点、间距、落点与结果（与角部断点同一清单口径）。 */
@@ -166,6 +188,29 @@ export interface FreeEndSnap {
   outcome: "snapped" | "skipped";
   reason?: SnapSkipReason;
   /** 原始墙候选段号（去重前的拟合编号，sources）。 */
+  sources: [number[] | undefined, number[] | undefined];
+}
+/** 同轴串联桥接的跳过原因，逐条给出供诊断脚本与清单使用。 */
+export type SeriesSkipReason = "beyond-tie" | "not-gap" | "reversed" | "another-wall" | "degenerate-face";
+/** 一对同轴串联缺口（两段近共线、投影不重叠、相邻）的记录：几何、断口证据与结果。 */
+export interface SeriesBridge {
+  /** 缺口两侧的墙段（owner 为投影在前的一段，target 为投影在后的一段）与各自的端点。 */
+  segments: [number, number];
+  ends: ["a" | "b", "a" | "b"];
+  from: [P, P];
+  /** 沿墙轴量出的轴向断口 m。 */
+  gapM: number;
+  /** 两轴横向错位 m（owner 端点与其自身轴线的偏差 + target 两端到 owner 轴的偏差，取最大）。 */
+  offsetM: number;
+  /** 两墙方向差（度）。 */
+  directionDeg: number;
+  /** 落点：两段各沿自身墙轴补到同一点（横向错位各让一半）。 */
+  landing: P;
+  /** 两段各自的延长量 m；落点取点时恒为两者的折中，没有"只动一方"的分支。 */
+  extensionM: [number, number];
+  evidenceCells: [number, number];
+  outcome: "bridged" | "skipped";
+  reason?: SeriesSkipReason;
   sources: [number[] | undefined, number[] | undefined];
 }
 /** 角部断点：一对延长线可交于墙角、但两端点互不共线的自由端，及其处理结果。 */
@@ -536,7 +581,7 @@ function buildNetwork<T extends { a: P; b: P; support: number; rmsM: number }>(i
     touched.add(`${segments[j]!.sourceIndex}`);
   }
 
-  // 3b) 角部连接：两段互不共线的墙，各自沿墙轴延长后的交点距两端点都 ≤ CORNER_REACH_M、
+  // 3c) 角部连接：两段互不共线的墙，各自沿墙轴延长后的交点距两端点都 ≤ CORNER_REACH_M、
   //     交点附近有墙体证据时，把两个端点收敛到交点这一个节点上。不满足的保持断开，逐条进角部断点清单，
   //     不进未闭合清单的其它口径（§4 的悬空端原因沿用同一清单）。
   const corners: CornerJoin[] = [];
@@ -647,7 +692,163 @@ function buildNetwork<T extends { a: P; b: P; support: number; rmsM: number }>(i
     return cornerCandidate(segments.indexOf(own), end, segments.indexOf(far), other, false)?.record.reason;
   }
 
-  // 3c) 自由端聚类吸附（Issue #27，修复 g）：上面各步判完之后仍为度 1 的自由端，如果它的最近邻是另一个自由端、
+  // 3d) 同轴串联桥接（Issue #29，修复 h）：沿轴延长（第 3 步）只认"延长目标落在本方轴线上 ≤ TIE_TOLERANCE_M"，
+  //     同一道墙被拟合成首尾两段、近共线但横向错位 0.12–0.15 m 时就被这条贴合容差拒掉。
+  //     这里对"投影沿轴不重叠、相邻、轴向缺口 ≤ MAX_EXTENSION_M、两轴横向错位 ≤ SERIES_TIE_M"的串联对
+  //     单独放宽**横向容差**：两段各沿自身墙轴补到同一落点（墙轴方向不变），横向错位各让一半。
+  //     断口定性口径不变：缺口 > MAX_EXTENSION_M 不桥接、≥ OPENING_M 按洞口，中间夹着第三方墙段不跨。
+  //     沿轴延长本来就能接上（落点横向偏差 ≤ 贴合容差）或由吸附处理的缺口不放宽、不改落点。
+  //
+  //     两段的几何全部量在**与段方向无关的公共轴**上：参照段（较长的一段）与对方方向单位向量的平均。
+  //     同一道墙常被拟合成方向相反的两段（两段各指向缺口），任何"哪一端在前"的取值都会被段序翻转，
+  //     公共轴上的无向区间比较才稳定。
+  const seriesTie = policies.seriesTieM ?? SERIES_TIE_M;
+  const series: SeriesBridge[] = [];
+  /** 已判定过的串联对（段号 + 端点）；桥接会移动端点，同一对不重复判定（判定记录只出一条）。 */
+  const triedSeries = new Set<string>();
+  let seriesBridges = 0;
+  if (seriesTie > 0) {
+    const sinDeg = (deg: number) => Math.sin(deg * Math.PI / 180);
+    /** 一对串联候选的几何：全部为公共轴上的绝对量。 */
+    interface SeriesCandidate {
+      gapM: number; offsetM: number; seamM: number;
+      /** 两端补齐到落点的向量（公共轴上的轴向补量 + 横向减半），以及两段各自的补量 m。 */
+      ownShift: P; farShift: P; extensionM: [number, number];
+    }
+    /**
+     * 一对串联候选的几何。判据只看**端点**几何（与段自身 a/b 次序、段方向都无关）：
+     * 1. 相邻：跨段最近的一对端点距离 ≤ 轴向缺口上限 + 串联容差；
+     * 2. 首尾相接：对方端点必须在本方"本端的外侧"（本端是 a 就往 −∞ 侧、是 b 就往 +∞ 侧），反之亦然；
+     * 3. 缝宽 = 这对端点沿两段方向单位向量之和方向的投影距离；
+     * 4. 两轴错位 = 这两个端点在对方轴上的横向偏移之差；
+     * 5. 缺口 = 两端各自沿自身墙轴补到对方端点位置的距离，取较大者（与沿轴延长同一口径）。
+     * 同一道墙被拟合成方向相反的两段时，第 2 条的"向外"由本端是 a 还是 b 给出，正是几何上的朝缺口方向。
+     */
+    const seamOf = (i: number, end: "a" | "b", j: number, other: "a" | "b"): SeriesCandidate | undefined => {
+      const own = segments[i]!, far = segments[j]!;
+      const p = endpointOf(own, end), q = endpointOf(far, other);
+      if (distance(p, q) > MAX_EXTENSION_M + SERIES_TIE_M + 1e-6) return undefined;
+      const ownAxis = axisOf(own), farAxis = axisOf(far);
+      // 2) 首尾相接：对方端点在本方本端外侧、本方端点在对方本端外侧。
+      const sign = end === "b" ? 1 : -1, farSign = other === "b" ? 1 : -1;
+      const onOwnQ = project(ownAxis, q), onFarP = project(farAxis, p);
+      const ownExtra = sign * (onOwnQ.t - (end === "b" ? 1 : 0)) * ownAxis.length;
+      const farExtra = farSign * (onFarP.t - (other === "b" ? 1 : 0)) * farAxis.length;
+      // 同一道墙被拟合成方向相反的两段时，两端点会各自从对方**不同**的出口出去（一近一远），近端那一侧的
+      // 端点在本方轴上会落到本体之前——这不是重叠（重叠意味着对方整段都在本方之内）。因此只要有一侧明显
+      // 在外就算首尾相接；两侧都在对方段内才是重复拟合。
+      if (ownExtra <= VERTEX_MERGE_M && farExtra <= VERTEX_MERGE_M) return undefined;
+      // 3) 缝宽：两端点沿两段方向单位向量之和方向的投影距离。
+      // 两段的方向单位向量；反向时向量和为 0，因此先把对方折到与本方同向（墙轴是无向的）。
+      const flip = ownAxis.ux * farAxis.ux + ownAxis.uy * farAxis.uy < 0 ? -1 : 1;
+      const ux = ownAxis.ux + flip * farAxis.ux, uy = ownAxis.uy + flip * farAxis.uy, norm = Math.hypot(ux, uy);
+      if (norm < 1e-6) return undefined;
+      const seamM = Math.abs(((q[0] - p[0]) * ux + (q[1] - p[1]) * uy) / norm);
+      if (seamM > MAX_EXTENSION_M + 1e-6) return undefined;
+      // 4) 两轴错位：按两段是否同向分两套度量，判别只用两段方向单位向量的点积符号（不新增参数）。
+      //    同向（点积 > 0）：两端点在对方轴上的有符号偏移同号且就等于两轴间距，直接取绝对值。
+      //    相向（点积 < 0）：两个端点各自都近乎落在对方轴线上，单看任一端或两者的差都会塌成 0，
+      //    改取"对方另一端点 → 本方轴"与"本方另一端点 → 对方轴"两条垂距中较小者——这正是两段在缝处
+      //    相距多少。
+      const sameWay = ownAxis.ux * farAxis.ux + ownAxis.uy * farAxis.uy > 0;
+      const perpOf = (axis: Axis, point: P) => Math.abs((point[0] - axis.a[0]) * axis.uy - (point[1] - axis.a[1]) * axis.ux);
+      const crossA = perpOf(ownAxis, other === "a" ? far.b : far.a), crossB = perpOf(farAxis, end === "a" ? own.b : own.a);
+      const offsetM = sameWay ? Math.abs(onFarP.offset) : Math.min(crossA, crossB);
+      // 5) 缺口：两端各自沿自身墙轴补到对方端点位置的距离。
+      const reachOwn = Math.abs(dot(sub(q, p), [ownAxis.ux, ownAxis.uy])), reachFar = Math.abs(dot(sub(p, q), [farAxis.ux, farAxis.uy]));
+      const gapM = Math.max(seamM, ownExtra, farExtra, reachOwn, reachFar);
+      if (gapM > MAX_EXTENSION_M + 1e-6) return undefined;
+      // 补齐：两段各沿自身墙轴补到对方端点在该轴上的位置、横向各让一半，再合成一个节点；墙轴方向都不变。
+      // 落点：两段各沿**自身墙轴**补到缝的另一端（纯轴向位移，墙轴方向与斜率都不变），两端再各向对方轴线
+      // 让出横向错位的一半——只让一半，所以是"两段都动一点"而不是把一面墙整段横着挪。
+      const ownSide = project(ownAxis, q).offset, farSide = project(farAxis, p).offset;
+      const ownShift: P = [ownAxis.ux * reachOwn * sign - ownAxis.uy * (ownSide / 2), ownAxis.uy * reachOwn * sign + ownAxis.ux * (ownSide / 2)];
+      const farShift: P = [farAxis.ux * reachFar * farSign - farAxis.uy * (farSide / 2), farAxis.uy * reachFar * farSign + farAxis.ux * (farSide / 2)];
+      return { gapM, offsetM, seamM, ownShift, farShift, extensionM: [Math.round(Math.hypot(ownShift[0], ownShift[1]) * 1000) / 1000, Math.round(Math.hypot(farShift[0], farShift[1]) * 1000) / 1000] };
+    };
+    for (let guard = 0; guard < 64; guard++) {
+      let acted = false;
+      for (let i = 0; i < segments.length && !acted; i++) for (const end of ["a", "b"] as const) {
+        if (acted) break;
+        const p = endpointOf(segments[i]!, end), ownAxis = axisOf(segments[i]!);
+        let candidate: { j: number; other: "a" | "b"; geometry: SeriesCandidate } | undefined;
+        for (let j = 0; j < segments.length; j++) {
+          if (j === i) continue;
+          const far = segments[j]!;
+          if (Math.abs(Math.sin(endpointsAngle(far) - endpointsAngle(segments[i]!))) > sinDeg(DEDUPE_DIRECTION_DEG)) continue;
+          for (const other of ["a", "b"] as const) {
+            const geometry = seamOf(i, end, j, other);
+            if (!geometry) continue;
+            if (!candidate || geometry.gapM < candidate.geometry.gapM - 1e-9) candidate = { j, other, geometry };
+          }
+        }
+        if (!candidate) continue;
+        const key = [i, end, candidate.j, candidate.other].sort().join(":");
+        if (triedSeries.has(key)) continue;
+        triedSeries.add(key);
+        const own = segments[i]!, far = segments[candidate.j]!, q = endpointOf(far, candidate.other);
+        const farAxis = axisOf(far);
+        const onOwn = project(ownAxis, q), onFar = project(farAxis, p);
+        const record = (outcome: "bridged" | "skipped", extra: { reason?: SeriesSkipReason; landing?: P }) => ({
+          segments: [own.sourceIndex, far.sourceIndex] as [number, number],
+          ends: [end, candidate!.other] as ["a" | "b", "a" | "b"], from: [pointOn(p), pointOn(q)] as [P, P],
+          gapM: Math.round(candidate!.geometry.gapM * 1000) / 1000,
+          offsetM: Math.round(candidate!.geometry.offsetM * 1000) / 1000,
+          directionDeg: Math.round(Math.asin(Math.min(1, Math.abs(Math.sin(endpointsAngle(far) - endpointsAngle(own))))) * 1800 / Math.PI) / 10,
+          landing: pointOn(extra.landing ?? q), extensionM: candidate!.geometry.extensionM,
+          evidenceCells: [own.support, far.support] as [number, number],
+          outcome, reason: extra.reason, sources: [own.sources, far.sources] as [number[] | undefined, number[] | undefined],
+        });
+        // 0) 不接手的两种情形（既有机制已覆盖）：对方端点横向本来就在本方轴线的贴合容差内、且落在本方段内部
+        //    （贴合插点）；或两段端点几乎重合（端点错位，交给吸附阶段）。
+        const insideOwn = onOwn.t > 1e-6 && onOwn.t < 1 - 1e-6;
+        if ((insideOwn && Math.abs(onOwn.offset) <= TIE_TOLERANCE_M) || distance(p, q) <= 2 * TIE_TOLERANCE_M) continue;
+        //    第三类：两轴错位本来就在贴合容差之内——这是沿轴延长/角接（第 3 步与 3c 步）能接上的缺口，
+        //    本阶段只放宽"超过贴合容差、但在 SERIES_TIE_M 以内"那一段，不抢既有规则的处理。
+        if (candidate.geometry.offsetM <= TIE_TOLERANCE_M) continue;
+        // 1) 横向：两轴在缝处的错位，上限 SERIES_TIE_M（本次唯一放宽的容差）。
+        if (candidate.geometry.offsetM > seriesTie + 1e-9) { series.push(record("skipped", { reason: "beyond-tie" })); continue; }
+        // 2) 缺口中间夹着第三方墙段时不跨：跨过它就不是一条缝。容差取拟合 RMS 的 2.5 倍（与贴合容差同一取法）；
+        //    两端点周围 SEAM_MARGIN_M 软带里的墙端是角点或包住端头的短段，不算隔墙。
+        const seamM = candidate.geometry.seamM;
+        const atSeam = (third: WallPiece) => distance(third.a, p) <= SEAM_MARGIN_M || distance(third.b, p) <= SEAM_MARGIN_M
+          || distance(third.a, q) <= SEAM_MARGIN_M || distance(third.b, q) <= SEAM_MARGIN_M;
+        //    第三方墙段只要有一处落在缝的中点附近（两端点 SEAM_MARGIN_M 以外、缝中垂线 ±0.1 m 内）就是隔墙；
+        //    只量它离 p 有多远不够——横墙从缝里穿过时，p 可能恰好在它端点旁边。
+        const midSeam: P = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
+        const occluded = segments.some((third, k) => {
+          if (k === i || k === candidate!.j || atSeam(third)) return false;
+          const axis = axisOf(third), q3 = project(axis, midSeam), t3 = Math.max(0, Math.min(1, q3.t));
+          const d = distance(midSeam, [third.a[0] + (third.b[0] - third.a[0]) * t3, third.a[1] + (third.b[1] - third.a[1]) * t3]);
+          return (Math.abs(q3.offset) <= 2.5 * third.rmsM && d + 1e-6 < seamM / 2 + SEAM_MARGIN_M) || d <= .1;
+        });
+        if (occluded || insideWall(q, [i, candidate.j])) { series.push(record("skipped", { reason: "another-wall" })); continue; }
+        // 落点：两段各沿自身墙轴补到同一点（轴向各一半、横向各让一半），墙轴方向都不变。
+        const landing = pointOn([p[0] + candidate.geometry.ownShift[0], p[1] + candidate.geometry.ownShift[1]]);
+        const farLanding = pointOn([q[0] + candidate.geometry.farShift[0], q[1] + candidate.geometry.farShift[1]]);
+        const joint: P = pointOn([(landing[0] + farLanding[0]) / 2, (landing[1] + farLanding[1]) / 2]);
+        const next = segments.map((s, k) => (k === i ? setEndpoint(s, end, joint) : k === candidate!.j ? setEndpoint(s, candidate!.other, joint) : s));
+        if (formsDegenerateFace(next, SNAP_MIN_FACE_M2)) { series.push(record("skipped", { reason: "degenerate-face", landing: joint })); continue; }
+        segments[i] = { ...setEndpoint(own, end, joint), joinMm: Math.round(distance(p, joint) * 1000) };
+        segments[candidate.j] = { ...setEndpoint(far, candidate.other, joint), joinMm: Math.round(distance(q, joint) * 1000) };
+        touched.add(`${own.sourceIndex}`); touched.add(`${segments[candidate.j]!.sourceIndex}`);
+        moved.add(`${own.sourceIndex}:${end}`); moved.add(`${segments[candidate.j]!.sourceIndex}:${candidate.other}`);
+        for (let k = 0; k < segments.length; k++) {
+          if (k === i || k === candidate.j || touched.has(`${segments[k]!.sourceIndex}`)) continue;
+          for (const o of ["a", "b"] as const) {
+            const atEnd = endpointOf(segments[k]!, o);
+            if (distance(atEnd, p) <= VERTEX_MERGE_M || distance(atEnd, q) <= VERTEX_MERGE_M) segments[k] = setEndpoint(segments[k]!, o, joint);
+          }
+        }
+        series.push(record("bridged", { landing: joint }));
+        seriesBridges += 2;
+        acted = true;
+      }
+      if (!acted) break;
+    }
+  }
+
+  // 3e) 自由端聚类吸附（Issue #27，修复 g）：串联桥接之后仍为度 1 的自由端，如果它的最近邻是另一个自由端、
   //     端点直线距离 ≤ FREE_END_SNAP_M、两点之间没有别的墙（距离就是最短缺口，不跨墙也不跨洞口），就把两端吸附成
   //     同一个节点。落点优先取两墙轴的延长线交点（墙轴方向不变、不拉斜线），两轴平行时取两端点按证据格数加权平均。
   //     吸附只改端点坐标，不改墙轴方向的拟合来源记录（sources / rmsM / support 原样保留）。
@@ -828,15 +1029,19 @@ function buildNetwork<T extends { a: P; b: P; support: number; rmsM: number }>(i
     }
   });
   if (splits) notes.push(`${insertedNodes} 次在既有墙上插入节点，墙段由 ${input.length} 条切分为 ${segments.length} 条，节点与边保留原墙候选段号。`);
+  if (series.length) {
+    const bridged = series.filter(r => r.outcome === "bridged");
+    notes.push(`同轴串联桥接（横向容差 ${seriesTie} m）：${bridged.length} 对串联缺口桥接成同一节点，${series.length - bridged.length} 对判定后保持断开（原因见串联清单）。`);
+  }
   if (snaps.length) notes.push(`自由端聚类吸附（半径 ${snapRadius} m）：${joins.length} 对自由端吸附成同一节点，${snaps.length - joins.length} 对判定后保持断开（原因见吸附清单）。`);
 
   const join: JoinCounts = {
     endpoints: segments.length * 2, connected: segments.length * 2 - dangling, opening, unclosed: tooLarge, dangling,
     joined, extensions, insertedNodes, splits, revertedExtensions: reverted,
     corners: stillOpen.filter(c => c.outcome === "joined").length, cornerCandidates: stillOpen.length,
-    snaps: joins.length * 2, revertedSnaps: reverted,
+    snaps: joins.length * 2, revertedSnaps: reverted, seriesBridges,
   };
   const openCorners = stillOpen.filter(c => c.outcome === "skipped").length;
   if (stillOpen.length) notes.push(`角部断点 ${stillOpen.length} 处：${stillOpen.length - openCorners} 处收敛到延长线交点，${openCorners} 处保持断开（原因见角部清单）。`);
-  return { segments, nodes, edges: segments.length, join, unclosed, corners: stillOpen, snaps, notes, policies: reportPolicies };
+  return { segments, nodes, edges: segments.length, join, unclosed, corners: stillOpen, snaps, series, notes, policies: reportPolicies };
 }

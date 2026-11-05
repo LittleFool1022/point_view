@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { CORNER_REACH_M, EXTENSION_MIN_M, FREE_END_SNAP_M, MIN_PIECE_M, OPENING_M, MAX_EXTENSION_M, TIE_TOLERANCE_M, buildWallNetwork } from "../src/pipeline/wallNetwork";
+import { DEDUPE_AXIS_GAP_M } from "../src/pipeline/wallDedupe";
+import { CORNER_REACH_M, EXTENSION_MIN_M, FREE_END_SNAP_M, MIN_PIECE_M, OPENING_M, MAX_EXTENSION_M, SERIES_TIE_M, TIE_TOLERANCE_M, buildWallNetwork } from "../src/pipeline/wallNetwork";
 type P = [number, number];
 const seg = (a: P, b: P) => ({ a, b, support: 20, rmsM: .01 });
 const length = (s: { a: P; b: P }) => Math.hypot(s.b[0] - s.a[0], s.b[1] - s.a[1]);
@@ -360,6 +361,122 @@ describe("墙网连接规则", () => {
       // 落点来源只有两种取值，且与落点是否取到交点一致：可见的角部由既有角接处理，
       // 吸附只承担"各规则都判过之后仍剩下的小错位"，因此样本上常见的是证据加权。
       expect(["intersection", "evidence-weighted"]).toContain(joined[0]!.landingSource);
+    });
+  });
+
+  /**
+   * 同轴串联桥接（Issue #29，修复 h）：两段近共线、投影不重叠、首尾相邻；横向错位**超过**贴合容差、
+   * 在 SERIES_TIE_M 以内时（只有这一档是本阶段放宽的），两段各沿自身墙轴补到同一落点、墙轴方向不变。
+   * 横向错位 ≤ 贴合容差 的缺口留给沿轴延长/角接，投影重叠的留给去重，两端重合的留给吸附。
+   */
+  describe("同轴串联桥接", () => {
+    // Issue #29 要求核对的真实样本一对：去重后 #16（来源 26）与 #37（来源 52）的实际坐标。
+    const real = () => [{ ...seg([30.241, -5.268], [30.333, -3.455]), sources: [26] }, { ...seg([30.094, -4.905], [30.195, -3.517]), sources: [52] }];
+    /** 同向串联：两段朝同一方向，横向错位 lateral。 */
+    const sameWay = (lateral: number) => [seg([0, 0], [3.7, 0]), seg([4, lateral], [8, lateral])];
+    /** 相向串联：前一段反向，两段各自指向缺口，横向错位 lateral。 */
+    const opposing = (lateral: number) => [seg([3.7, 0], [0, 0]), seg([4, lateral], [8, lateral])];
+    const verdict = (network: ReturnType<typeof buildWallNetwork>) => network.series.map(r => ({ gapM: r.gapM, offsetM: r.offsetM, outcome: r.outcome, reason: r.reason }));
+
+    it("横向容差取去重判据的轴间距（0.15 m），且大于贴合容差", () => {
+      expect(SERIES_TIE_M).toBe(DEDUPE_AXIS_GAP_M);
+      expect(SERIES_TIE_M).toBeGreaterThan(TIE_TOLERANCE_M);
+    });
+
+    /**
+     * 两套度量（同向 / 相向）的三档区分：Issue #29 续行要求 0.13 / 0.20 / 0.25 m 三档在两套度量下
+     * 都能被正确量出、并按 0.15 m 容差分别落到"桥接 / 不桥接"。期望值是按坐标手算的几何量。
+     */
+    it("同向度量：0.13 / 0.20 / 0.25 m 三档各量出正确错位，仅 0.13 档在容差内", () => {
+      const measured = [.13, .2, .25].map(lateral => verdict(buildWallNetwork(sameWay(lateral)))[0]!);
+      expect(measured.map(r => r.offsetM)).toEqual([.13, .2, .25]);
+      expect(measured.map(r => r.outcome)).toEqual(["bridged", "skipped", "skipped"]);
+      expect(measured.slice(1).every(r => r.reason === "beyond-tie")).toBe(true);
+      // 三档的缝宽都是 0.3 m：被拒的原因只能是横向错位，而不是缝宽。
+      expect(measured.map(r => r.gapM)).toEqual([.3, .3, .3]);
+    });
+
+    it("相向度量：同样三档各量出正确错位，仅 0.13 档在容差内", () => {
+      const measured = [.13, .2, .25].map(lateral => verdict(buildWallNetwork(opposing(lateral)))[0]!);
+      expect(measured.map(r => r.offsetM)).toEqual([.13, .2, .25]);
+      expect(measured.map(r => r.outcome)).toEqual(["bridged", "skipped", "skipped"]);
+      expect(measured.slice(1).every(r => r.reason === "beyond-tie")).toBe(true);
+    });
+
+    it("真实样本的 #16↔#37：两轴在缝处相距约 0.17 m，超容差，不桥接、进未闭合清单", () => {
+      // Issue 正文原写「横向错位 0.13 m、应桥接」；按真实坐标手算，两段方向相反、两条拟合轴在缝处
+      // 相距约 0.17 m（0.173 与 0.135 两条垂距之差约 0.04 m，而端点各自的垂距约 0.17 m），
+      // 超过 0.15 m 的串联容差。负责人决定：容差不放宽，这一对按规则进未闭合清单。
+      const network = buildWallNetwork(real());
+      expect(network.join.seriesBridges).toBe(0);
+      const judged = network.series.find(r => r.outcome === "skipped")!;
+      expect(judged).toMatchObject({ segments: [0, 1], reason: "beyond-tie" });
+      expect(judged.offsetM).toBeCloseTo(.173, 2);
+      expect(judged.offsetM).toBeGreaterThan(SERIES_TIE_M);
+      // 两端保持原样，且这一对如实记在未闭合清单里（同一数组，不另起平行清单）。
+      expect(network.segments.find(s => s.sourceIndex === 0)!.a).toEqual([30.241, -5.268]);
+      expect(network.segments.find(s => s.sourceIndex === 1)!.a).toEqual([30.094, -4.905]);
+      expect(network.unclosed.some(u => Math.abs((u.gapM ?? 0) - .392) < .005)).toBe(true);
+    });
+
+    it("容差内的串联对桥接成同一节点：两段各沿自身墙轴补到一点，墙轴方向不变", () => {
+      const network = buildWallNetwork(sameWay(.13));
+      expect(network.join.seriesBridges).toBe(2);
+      const first = network.segments.find(s => s.sourceIndex === 0)!, second = network.segments.find(s => s.sourceIndex === 1)!;
+      expect(first.a).toEqual([0, 0]);
+      expect(first.b).toEqual(second.a);
+      // 落点在缝的中间、两轴之间；两段都沿**自身墙轴**补到落点，墙轴方向不变（各自方向的斜率不变）。
+      expect(first.b[0]).toBeCloseTo(3.85, 2);
+      expect(first.b[1]).toBeCloseTo(.065, 2);
+      expect(second.b[1]).toBeCloseTo(.13, 6);
+      // 两段接成同一节点、各自仍是同一道墙（端点只沿本段移动），不产生斜撑：
+      // 桥接只改端点，墙轴方向沿用各自的拟合方向；后接的沿轴延长（第 3 步）会把另一端对齐到本方轴线，
+      // 因此第二段的斜率可能被那一步带回来一点，这里只核对"两端共点、没有新增墙段"。
+      expect(network.segments.filter(s => s.sourceIndex === 0 || s.sourceIndex === 1)).toHaveLength(2);
+      expect(second.a).toEqual(first.b);
+      expect(first.b[0]).toBeGreaterThan(3.7);
+      expect(first.b[0]).toBeLessThan(4);
+    });
+
+    it("同一墙轴 0.7 m 洞口断口不得桥接：超过沿轴延长上限，两侧各记一条未闭合", () => {
+      const network = buildWallNetwork([seg([0, 0], [3.3, 0]), seg([4, .13], [8, .13])]);
+      expect(network.join.seriesBridges).toBe(0);
+      expect(network.series).toHaveLength(0);
+      expect(network.segments.find(s => s.sourceIndex === 0)!.b).toEqual([3.3, 0]);
+      expect(network.segments.find(s => s.sourceIndex === 1)!.a).toEqual([4, .13]);
+      const wide = network.unclosed.filter(u => u.reason === "gap-too-large" && Math.abs((u.gapM ?? 0) - .7) < .02);
+      expect(wide).toHaveLength(2);
+    });
+
+    it("缺口中间横着另一面非共线墙时不跨过它桥接", () => {
+      // 两段 0.3 m 断口、横向 0.13 m，断口正中横着一面垂直于该墙的墙：跨过去就不是一条缝。
+      const network = buildWallNetwork([seg([0, 0], [3.7, 0]), seg([4.0, .13], [8, .13]), seg([3.85, -2], [3.85, 2])]);
+      expect(network.join.seriesBridges).toBe(0);
+      expect(network.series.some(r => r.outcome === "skipped" && r.reason === "another-wall")).toBe(true);
+    });
+
+    it("横向错位在贴合容差以内的缺口不归本阶段：交给沿轴延长，落点与计数不变", () => {
+      const network = buildWallNetwork([seg([0, 0], [3.7, 0]), seg([4, .05], [8, .05])]);
+      expect(network.join.seriesBridges).toBe(0);
+      expect(network.join.extensions).toBeGreaterThan(0);
+    });
+
+    it("平行双表面（投影重叠）不归串联桥接管：属于去重口径，PR #25 的反例不动", () => {
+      // 两面平行墙面各偏 0.08 m、投影完全重叠：不是首尾相接的缺口。
+      const network = buildWallNetwork([seg([0, 0], [8, 0]), seg([0, .16], [8, .16])]);
+      expect(network.join.seriesBridges).toBe(0);
+      expect(network.series).toHaveLength(0);
+      expect(network.segments).toHaveLength(2);
+      expect(network.join.dangling).toBe(4);
+    });
+
+    it("沿轴延长本来就能接上的缺口不归本阶段：落点与计数保持沿轴延长的口径", () => {
+      const walls = [seg([0, 0], [3.7, 0]), seg([4, 0], [8, 0])];
+      const network = buildWallNetwork(walls);
+      expect(network.join.seriesBridges).toBe(0);
+      expect(network.series).toHaveLength(0);
+      expect(network.join.extensions).toBe(1);
+      expect(network.segments[0]!.b).toEqual([4, 0]);
     });
   });
 
