@@ -16,6 +16,8 @@
     "test": "vitest run --config vitest.config.ts",
     "test:ui": "playwright test --config playwright.config.ts",
     "measure:baseline": "vite-node scripts/measure-baseline.ts",
+    "diagnose:room-closure": "vite-node scripts/diagnose-room-closure.ts",
+    "replay:room-faces": "vite-node scripts/replay-room-faces.ts",
     "cleanup:case-study": "vite-node scripts/cleanup-case-study.ts"
   },
   "devDependencies": {
