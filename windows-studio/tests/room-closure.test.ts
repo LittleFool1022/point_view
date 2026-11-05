@@ -36,7 +36,9 @@ describe("墙网与房间闭合夹具",()=>{
     // 与失败模式 4 的 1.2 m 门口判据失去区分度），因此这里如实记为未闭合，而不是静默补墙。
     const network = buildWallNetwork(segments);
     expect(network.join.unclosed).toBe(1);
-    expect(network.unclosed[0]!.reason).toBe("no-alignment");
+    // 角部规则给出精确原因：两段平行，延长线不相交，不存在"墙角交点"，因此不是角部断点而是同一墙轴的错位缺口。
+    expect(network.unclosed[0]!.reason).toBe("corner-too-far");
+    expect(network.join.corners).toBe(0);
     // 左墙端点按贴合规则投到上墙墙轴 (0,6) 并插节点，缺口本身保留为悬空端——
     // 上墙因此不再越出左墙 0.3 m，墙网与拟合候选一致，未虚构连接。
     expect(network.nodes.some(n => Math.hypot(n.p[0], n.p[1] - 6) < 1e-6)).toBe(true);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { OPENING_M, MAX_EXTENSION_M, buildWallNetwork } from "../src/pipeline/wallNetwork";
+import { CORNER_REACH_M, OPENING_M, MAX_EXTENSION_M, buildWallNetwork } from "../src/pipeline/wallNetwork";
 type P = [number, number];
 const seg = (a: P, b: P) => ({ a, b, support: 20, rmsM: .01 });
 const length = (s: { a: P; b: P }) => Math.hypot(s.b[0] - s.a[0], s.b[1] - s.a[1]);
@@ -99,8 +99,92 @@ describe("墙网连接规则", () => {
     // 端点相距 0.42 m（在 0.5 m 上限内），但横向偏差 0.3 m：不延长、不拉斜线。
     const apache = buildWallNetwork([seg([0, 0], [7.7, 0]), seg([8, .3], [8, 6])]);
     expect(apache.join.joined).toBe(0);
+    expect(apache.join.corners).toBe(0);
     expect(apache.join.unclosed).toBe(2);
-    expect(apache.unclosed.filter(u => u.reason === "no-alignment")).toHaveLength(2);
+    // 交点 (8,0) 距水平墙端点 0.3 m、距竖直墙端点 0.3 m；收敛后两段之间的连线是 0.42 m 的斜线而不是墙角，
+    // 且交点附近没有其它墙体证据，因此不收敛、不拉斜线，原因逐条写到墙角口径下。
+    expect(apache.unclosed.filter(u => u.reason === "corner-no-evidence")).toHaveLength(2);
+    expect(apache.unclosed.filter(u => u.corner === "no-evidence")).toHaveLength(2);
+    expect(apache.segments[0]!.b).toEqual([7.7, 0]);
+    expect(apache.segments[1]!.a).toEqual([8, .3]);
+  });
+
+  it("L 形角部双侧各短缺约 0.3 m：延长线交于墙角，两端点收敛到同一交点节点", () => {
+    // 墙角在 (8, 0)：水平墙一侧短缺 0.3 m（止于 7.7, 0），竖直墙一侧短缺 0.5 m（自 8, 0.5 起），
+    // 另有外墙自 (8.3, 0) 起提供交点处的墙体证据。两段端点相距 0.58 m 超过单侧可达距离，
+    // 因此由共享该角的外墙与竖直墙收敛：交点 (8, 0) 距两端点 0.3 m 与 0.5 m，两侧都在 CORNER_REACH_M 内。
+    const network = buildWallNetwork([seg([0, 0], [7.7, 0]), seg([8, .5], [8, 6]), seg([8, 6], [0, 6]), seg([0, 6], [0, 0]), seg([8.3, 0], [12, 0])]);
+    expect(network.join.corners).toBe(1);
+    const joined = network.corners.filter(c => c.outcome === "joined");
+    expect(joined).toHaveLength(1);
+    // segments = [竖直墙 1, 外墙 4]：toA 是竖直墙端点到交点的距离（0.5 m），toB 是外墙端点的（0.3 m）。
+    expect(joined[0]).toMatchObject({ segments: [1, 4], toA: .5, toB: .3, angleDeg: 90 });
+    expect(joined[0]!.intersection).toEqual([8, 0]);
+    // 交点节点同时接住竖直墙与外墙，二者都收敛到 (8, 0)。
+    const corner = network.nodes.find(n => Math.hypot(n.p[0] - 8, n.p[1]) < 1e-6)!;
+    expect(corner.degree).toBe(2);
+    expect(network.segments.find(s => s.sourceIndex === 1)!.a).toEqual([8, 0]);
+    expect(network.segments.find(s => s.sourceIndex === 4)!.a).toEqual([8, 0]);
+    // 收敛后每条墙仍沿自身墙轴（竖直墙 x=8、外墙 y=0），没有斜线；水平墙一侧的 0.3 m 短缺如实保留。
+    expect(network.segments.find(s => s.sourceIndex === 1)!.b).toEqual([8, 6]);
+    expect(network.segments.find(s => s.sourceIndex === 4)!.b).toEqual([12, 0]);
+    expect(network.segments.find(s => s.sourceIndex === 0)!.b).toEqual([7.7, 0]);
+    // 水平墙一侧与竖直墙原端点之间那对端点反映的是收敛前的候选，收敛后该端已接入节点、不再重复记录。
+    expect(network.corners.every(c => c.outcome !== "skipped" || c.reason !== undefined)).toBe(true);
+    expect(network.unclosed.some(u => u.segmentIndex === 0 && u.reason === "corner-too-far")).toBe(true);
+  });
+
+  it("角部上限与墙体证据：交点过远或无证据时保持断开并计入角部断点清单", () => {
+    // 有墙体证据但两侧各短缺 0.6 m：交点 (8, 0) 距两端点都 0.6 m > CORNER_REACH_M（= 沿轴延长上限），
+    // 因此不收敛，逐对记为"交点过远"，两根墙端点都不动。
+    const far = buildWallNetwork([seg([0, 0], [7.4, 0]), seg([8, .6], [8, 6]), seg([8, 6], [0, 6]), seg([0, 6], [0, 0]), seg([8.3, 0], [12, 0])]);
+    expect(CORNER_REACH_M).toBe(MAX_EXTENSION_M);
+    expect(far.join.corners).toBe(0);
+    expect(far.corners.length).toBeGreaterThan(0);
+    expect(far.corners.every(c => c.outcome === "skipped")).toBe(true);
+    expect(far.corners.map(c => c.reason)).toContain("too-far");
+    expect(far.corners.find(c => c.reason === "too-far")).toMatchObject({ toA: .6, toB: .6 });
+    expect(far.segments.find(s => s.sourceIndex === 1)!.a).toEqual([8, .6]);
+    expect(far.segments.find(s => s.sourceIndex === 4)!.a).toEqual([8.3, 0]);
+    // 未闭合清单沿用角部口径（同一数组、同一原因），不另起平行口径。
+    const cornerEnds = far.unclosed.filter(u => u.corner === "too-far");
+    expect(cornerEnds.length).toBeGreaterThan(0);
+    // 角部规则明确判定"交点可达但过远"的悬空端直接记成角部原因；缺口本身 0.85 m 的端点对连角部断点都不记录。
+    expect(cornerEnds.every(u => u.reason === "corner-too-far")).toBe(true);
+    // 交点可达（两侧 0.3 m）但交点附近没有其它墙体证据：同样保持断开，原因写"无墙体证据"。
+    const bare = buildWallNetwork([seg([0, 0], [7.7, 0]), seg([8, .3], [8, 6])]);
+    expect(bare.join.corners).toBe(0);
+    expect(bare.corners.find(c => c.reason === "no-evidence")).toMatchObject({ outcome: "skipped", toA: .3, toB: .3 });
+    expect(bare.segments[0]!.b).toEqual([7.7, 0]);
+    expect(bare.segments[1]!.a).toEqual([8, .3]);
+  });
+
+  it("悬空端最近的是墙体内部（丁字接头）时不属于角部断点，未闭合清单保留原原因", () => {
+    // 隔墙端点落在上墙中部附近的 T 形情形：丁字接头由贴合插点处理，这里只核对"不把 T 形说成墙角"。
+    const network = buildWallNetwork([seg([0, 0], [8, 0]), seg([8, 0], [8, 6]), seg([8, 6], [0, 6]), seg([0, 6], [0, 0]), seg([4, 3], [4, .3])]);
+    // 隔墙下端点离上墙 0.3 m（丁字缺口）：不计入角部断点，未闭合清单按原有"不同墙轴"口径如实记录。
+    expect(network.unclosed.every(u => u.corner === undefined)).toBe(true);
+    expect(network.unclosed.some(u => u.segmentIndex === 4 && u.end === "b" && u.reason === "no-alignment")).toBe(true);
+  });
+
+  it("1.2 m 门口两侧不被角部规则误连", () => {
+    const door = buildWallNetwork([seg([0, 0], [8, 0]), seg([8, 0], [8, 6]), seg([8, 6], [0, 6]), seg([0, 6], [0, 4.2]), seg([0, 3], [0, 0])]);
+    expect(door.join.corners).toBe(0);
+    // 门口两侧是同一墙轴的平行缺口，延长线平行（不相交），因此连角部断点都不构成。
+    expect(door.corners).toHaveLength(0);
+    expect(door.segments.find(s => s.sourceIndex === 3)!.b).toEqual([0, 4.2]);
+    expect(door.segments.find(s => s.sourceIndex === 4)!.a).toEqual([0, 3]);
+    expect(door.unclosed.filter(u => u.reason === "opening").map(u => u.gapM)).toEqual([1.2, 1.2]);
+  });
+
+  it("近共线端点对仍走沿轴延长，角部规则不接管也不补斜线", () => {
+    // 两段夹角约 1°，横向错位 0.05 m：延长线交点会落在很远处，角部规则因"交点过远+夹角过小"不接管，
+    // 由沿轴延长把缺口接上（结果仍为同一墙轴上的缺口）。
+    const network = buildWallNetwork([seg([0, 0], [3.7, 0]), seg([4, .05], [8, .05])]);
+    expect(network.join.corners).toBe(0);
+    expect(network.corners).toHaveLength(0);
+    expect(network.join.extensions).toBe(1);
+    expect(network.segments[0]!.b[1]).toBeCloseTo(0, 6);
   });
 
   it("延伸不足最小墙长的回退为悬空端并给出原因，不算连接", () => {

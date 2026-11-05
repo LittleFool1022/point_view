@@ -15,13 +15,17 @@
 
 type P = [number, number];
 
-export interface WallPiece { a: P; b: P; support: number; rmsM: number; sourceIndex: number; pieceStart: number; pieceCount: number; joinMm: number }
+export interface WallPiece {
+  a: P; b: P; support: number; rmsM: number; sourceIndex: number; pieceStart: number; pieceCount: number; joinMm: number;
+  /** 原始墙候选段号（去重前的拟合编号）：输入段带 sources 时原样带出，供诊断回溯到拟合输出。 */
+  sources?: number[];
+}
 export interface WallNode { id: number; p: P; degree: number; walls: number[] }
 /** 未连接项：位置 + 原因，供诊断脚本与告警逐条输出。 */
-export type UnclosedReason = "opening" | "gap-too-large" | "no-alignment" | "extension-too-short" | "structural-gap";
+export type UnclosedReason = "opening" | "gap-too-large" | "no-alignment" | "extension-too-short" | "corner-too-far" | "corner-no-evidence" | "structural-gap";
 export interface UnclosedEnd {
   segmentIndex: number; end: "a" | "b"; pointM: P; reason: UnclosedReason;
-  gapM?: number; targetSegmentIndex?: number; note: string;
+  gapM?: number; targetSegmentIndex?: number; corner?: CornerSkipReason; note: string;
 }
 export interface JoinCounts {
   /** 墙网建成后的端点数（切分后）。 */
@@ -44,6 +48,10 @@ export interface JoinCounts {
   splits: number;
   /** 延伸段不足最小墙长而回退的次数。 */
   revertedExtensions: number;
+  /** 收敛到墙角的次数（角部连接）。 */
+  corners: number;
+  /** 检查过的角部断点数（= corners 清单长度）。 */
+  cornerCandidates: number;
 }
 export interface WallNetwork {
   /** 原墙候选顺序不变；被切分时 a→b 仍沿原方向，pieceStart 按原段局部累计。 */
@@ -52,6 +60,8 @@ export interface WallNetwork {
   edges: number;
   join: JoinCounts;
   unclosed: UnclosedEnd[];
+  /** 角部断点清单：每对"延长线可交于墙角、端点却互不共线"的自由端，与处理结果（已收敛/保持断开的原因）。 */
+  corners: CornerJoin[];
   /** 回退与其它可复核提示。 */
   notes: string[];
 }
@@ -70,6 +80,40 @@ export const MIN_PIECE_M = .8;
 const CORNER_ALIGN_M = .15;
 /** 共线判定：方向正弦差 ≤ 0.2（约 11.5°）。 */
 const CORNERS_COLLINEAR = .2;
+/**
+ * 角部连接：两段墙的轴线延长线交点距**两端点**都不超过该距离时，把两端点收敛到交点节点。
+ * 与沿轴延长上限 MAX_EXTENSION_M 取同一功能参数（Issue 参数），不另立阈值。
+ */
+export const CORNER_REACH_M = MAX_EXTENSION_M;
+/** 角部连接要求两段夹角不小于该值；更小的夹角属于同一墙轴的错位缺口，走沿轴延长，不在角部补斜线。 */
+const CORNER_MIN_ANGLE = .35;
+/** 角部交点附近的墙体证据：以交点为圆心、该半径内必须有支撑墙段（墙轴穿过软带、或墙段端点在软带内）。 */
+export const CORNER_EVIDENCE_M = .3;
+/** 角部连接失败的原因，逐条列出供诊断脚本与清单使用。 */
+export type CornerSkipReason = "too-far" | "too-short" | "no-evidence";
+/** 角部断点：一对延长线可交于墙角、但两端点互不共线的自由端，及其处理结果。 */
+export interface CornerJoin {
+  /** 待收敛的两个端点所在墙段。 */
+  segments: [number, number];
+  ends: ["a" | "b", "a" | "b"];
+  /** 两端点当前坐标与间距（收敛前）。 */
+  points: [P, P];
+  gapM: number;
+  /** 两段墙夹角（度）。 */
+  angleDeg: number;
+  /** 轴线延长线交点；平行或重合时为 null。 */
+  intersection: P | null;
+  /** 交点到两端点的距离。 */
+  toA: number;
+  toB: number;
+  /** 交点附近的墙体证据支撑格（参与墙段的 support 之和）。 */
+  evidenceCells: number;
+  /** 处理结果：joined = 已收敛到交点；skipped = 保持断开，reason 给出原因。 */
+  outcome: "joined" | "skipped";
+  reason?: CornerSkipReason;
+  /** 原始墙候选段号（去重前的拟合编号，sources）。 */
+  sources: [number[] | undefined, number[] | undefined];
+}
 
 const sub = (a: P, b: P): P => [a[0] - b[0], a[1] - b[1]];
 const dot = (a: P, b: P) => a[0] * b[0] + a[1] * b[1];
@@ -113,6 +157,13 @@ function extendAlong(axis: Axis, end: "a" | "b", target: P): P | undefined {
 
 const endpointsAngle = (s: WallPiece) => Math.atan2(s.b[1] - s.a[1], s.b[0] - s.a[0]);
 const endpointAt = (p: P, axis: Axis): P => { const v = sub(p, axis.a), l = dot(v, [axis.ux, axis.uy]); return pointOn([axis.a[0] + axis.ux * l, axis.a[1] + axis.uy * l]); };
+/** 两条墙轴的延长线交点；平行（方向正弦差 ≤ 1e-6）时返回 undefined。 */
+function intersectionOf(x: Axis, y: Axis): P | undefined {
+  const denominator = cross([x.ux, x.uy], [y.ux, y.uy]);
+  if (Math.abs(denominator) < 1e-6) return undefined;
+  const v = sub(y.a, x.a), t = cross(v, [y.ux, y.uy]) / denominator;
+  return pointOn([x.a[0] + x.ux * t, x.a[1] + x.uy * t]);
+}
 
 /**
  * 墙网级端点连接。输入为拟合墙候选，输出墙网（节点 + 边）与未连接清单。
@@ -126,7 +177,13 @@ const endpointAt = (p: P, axis: Axis): P => { const v = sub(p, axis.a), l = dot(
  * 4. 节点合并 + 未连接清单（洞口 ≥ OPENING_M、0.5–1.0 m 未闭合、不同轴、延伸不足）。
  */
 export function buildWallNetwork<T extends { a: P; b: P; support: number; rmsM: number }>(input: ReadonlyArray<T>): WallNetwork {
-  const segments: WallPiece[] = input.map((s, i) => ({ a: pointOn(s.a), b: pointOn(s.b), support: s.support, rmsM: s.rmsM, sourceIndex: i, pieceStart: 0, pieceCount: 1, joinMm: 0 }));
+  const segments: WallPiece[] = input.map((s, i) => {
+    const piece: WallPiece = { a: pointOn(s.a), b: pointOn(s.b), support: s.support, rmsM: s.rmsM, sourceIndex: i, pieceStart: 0, pieceCount: 1, joinMm: 0 };
+    // 输入带去重来源编号（wallDedupe 的 sources）时原样带出，诊断可回溯到拟合原始输出。
+    const sources = (s as { sources?: number[] }).sources;
+    if (sources) piece.sources = [...sources];
+    return piece;
+  });
   const notes: string[] = [];
   const revertedKeys = new Set<string>();
   /** 本轮被延长或对齐移动过的端点（原墙段号:端点），避免沿移动后的坐标连锁延长。 */
@@ -320,6 +377,116 @@ export function buildWallNetwork<T extends { a: P; b: P; support: number; rmsM: 
     touched.add(`${segments[j]!.sourceIndex}`);
   }
 
+  // 3b) 角部连接：两段互不共线的墙，各自沿墙轴延长后的交点距两端点都 ≤ CORNER_REACH_M、
+  //     交点附近有墙体证据时，把两个端点收敛到交点这一个节点上。不满足的保持断开，逐条进角部断点清单，
+  //     不进未闭合清单的其它口径（§4 的悬空端原因沿用同一清单）。
+  const corners: CornerJoin[] = [];
+  let cornerJoins = 0;
+  /** 已处理过的端点组合，避免同一对往返重复检查。 */
+  const cornerSeen = new Set<string>();
+  // 一轮扫描逐对记录角部断点；收敛会移动端点，因此重复扫描直到本轮没有新的收敛（上限防死循环）。
+  for (let guard = 0; guard < 256; guard++) {
+    let acted = false;
+    // 每个端点至多属于一处角部断点：本端已经接入节点（贴合/延长/角部）时不再参与，
+    // 角部清单因此逐对可读，也不会对同一个断点往返重复记录。
+    for (let i = 0; i < segments.length; i++) for (const end of ["a", "b"] as const) {
+      if (acted || jointed(i, end)) continue;
+      const key = (j: number, other: "a" | "b") => `${i}:${end}|${j}:${other}`;
+      for (let j = 0; j < segments.length && !acted; j++) {
+        if (i === j) continue;
+        for (const other of ["a", "b"] as const) {
+          if (cornerSeen.has(key(j, other))) continue;
+          const candidate = cornerCandidate(i, end, j, other);
+          if (!candidate) continue;
+          cornerSeen.add(key(j, other));
+          // 同一对端点从两端都会被走到：镜像组合也标记为已处理，角部清单里一对只出现一次。
+          cornerSeen.add(`${j}:${other}|${i}:${end}`);
+          corners.push(candidate.record);
+          if (candidate.outcome === "joined") { acted = true; cornerJoins++; }
+          break;
+        }
+      }
+    }
+    if (!acted) break;
+  }
+  // 收敛会把端点移到交点：同一个角部断点可能以收敛前的坐标被记录多次（例如先记"交点过远"、
+  // 收敛后再记相邻的一对）。按"墙段对 + 端点"去重，一对只保留最后一条（收敛后的真实状态）。
+  const stillOpen = [...corners.reduce((map, c) => {
+    const key = [c.segments[0]!, c.ends[0], c.segments[1]!, c.ends[1]].join(":");
+    return map.set(key, c);
+  }, new Map<string, CornerJoin>()).values()].map(c => {
+    // 收敛条目以最终几何为准：两端点合并到同一节点后间距为 0（节点半径由后续节点合并给出）。
+    if (c.outcome !== "joined") return c;
+    const a = segments.find(s => s.sourceIndex === c.segments[0]!)?.[c.ends[0]], b = segments.find(s => s.sourceIndex === c.segments[1]!)?.[c.ends[1]];
+    return a && b ? { ...c, gapM: Math.round(distance(a, b) * 1000) / 1000 } : c;
+  });
+  /** 检查一对端点是否构成墙角：返回"已收敛/保持断开"及其清单记录；两者都不是（例如平行墙）时返回 undefined。 */
+  function cornerCandidate(i: number, end: "a" | "b", j: number, other: "a" | "b", apply = true): { outcome: "joined" | "skipped"; record: CornerJoin } | undefined {
+    const own = segments[i]!, far = segments[j]!, p = endpointOf(own, end), q = endpointOf(far, other);
+    // 两端点已经合在同一个节点上（≤ VERTEX_MERGE_M）时是节点合并而不是墙角收敛，由第 4 步一并处理。
+    if (distance(p, q) <= VERTEX_MERGE_M) return undefined;
+    // 墙体证据的搜索半径：两端点本身相距不能超过两段各自的可达距离之和，否则这对端点之间没有可收敛的墙角，
+    // 属于"缺墙或洞口"，连角部断点都不记录。
+    if (distance(p, q) > 2 * CORNER_REACH_M) return undefined;
+    if (collinear(own, far)) return undefined;
+    const hit = intersectionOf(axisOf(own), axisOf(far));
+    if (!hit) return undefined;
+    const toA = distance(p, hit), toB = distance(q, hit), angle = Math.abs(Math.sin(endpointsAngle(far) - endpointsAngle(own)));
+    // 夹角太小（< CORNER_MIN_ANGLE 的正弦）等同于同一墙轴的错位缺口：交给沿轴延长，不在角部补斜线。
+    if (angle < Math.sin(CORNER_MIN_ANGLE)) return undefined;
+    const reachable = toA > 1e-6 && toB > 1e-6 && toA <= CORNER_REACH_M + 1e-9 && toB <= CORNER_REACH_M + 1e-9;
+    const record = (outcome: "joined" | "skipped", reason?: CornerSkipReason): { outcome: "joined" | "skipped"; record: CornerJoin } => ({
+      outcome, record: {
+        segments: [own.sourceIndex, far.sourceIndex], ends: [end, other],
+        points: [pointOn(p), pointOn(q)], gapM: Math.round(distance(p, q) * 1000) / 1000,
+        angleDeg: Math.round(Math.asin(Math.min(1, angle)) * 1800 / Math.PI) / 10,
+        intersection: pointOn(hit), toA: Math.round(toA * 1000) / 1000, toB: Math.round(toB * 1000) / 1000,
+        evidenceCells: own.support + far.support, outcome, reason,
+        sources: [own.sources, far.sources],
+      },
+    });
+    if (!reachable) return record("skipped", "too-far");
+    // 交点处必须有墙体证据：另一段（不含这一对）的墙轴穿过交点软带，或另一段的端点落在软带内。
+    const evidence = segments.some((s, k) => {
+      if (k === i || k === j) return false;
+      const axis = axisOf(s), { t, offset } = project(axis, hit);
+      return Math.abs(offset) <= TIE_TOLERANCE_M && t * axis.length >= -CORNER_EVIDENCE_M && t * axis.length <= axis.length + CORNER_EVIDENCE_M;
+    }) || segments.some((s, k) => k !== i && k !== j && (distance(s.a, hit) <= CORNER_EVIDENCE_M || distance(s.b, hit) <= CORNER_EVIDENCE_M));
+    if (!evidence) return record("skipped", "no-evidence");
+    // 收敛后任一段不足最小墙长时不连（不产生短墙段，与延伸不足同一口径）。
+    if (distance(end === "a" ? hit : own.a, end === "a" ? own.b : hit) < MIN_PIECE_M) return record("skipped", "too-short");
+    if (distance(other === "a" ? hit : far.a, other === "a" ? far.b : hit) < MIN_PIECE_M) return record("skipped", "too-short");
+    const target = pointOn(hit);
+    if (distance(p, target) <= 1e-6 && distance(q, target) <= 1e-6) return undefined;
+    // 只读判定（未闭合清单）到此为止：给出"可收敛"与否，但不移动任何端点。
+    if (!apply) return record("joined");
+    // 两端点收敛到同一交点节点：各沿自身墙轴移动，墙轴方向不变，两端之间的连线即为墙角而非斜撑。
+    segments[i] = setEndpoint(own, end, target);
+    segments[j] = setEndpoint(far, other, target);
+    touched.add(`${own.sourceIndex}`); touched.add(`${far.sourceIndex}`);
+    moved.add(`${own.sourceIndex}:${end}`); moved.add(`${far.sourceIndex}:${other}`);
+    // 与这两个端点共点、且本轮尚未被连接动过的其它墙端随之一并对齐（同一角点上的第三面墙）。
+    for (let k = 0; k < segments.length; k++) {
+      if (k === i || k === j || touched.has(`${segments[k]!.sourceIndex}`)) continue;
+      for (const o of ["a", "b"] as const) if (distance(endpointOf(segments[k]!, o), p) <= VERTEX_MERGE_M) segments[k] = setEndpoint(segments[k]!, o, target);
+    }
+    return record("joined");
+  }
+
+  /**
+   * 悬空端与另一墙段的角部判定（只读，不改几何）：两段不共线、端点相距 ≤ MAX_EXTENSION_M、
+   * 延长线交点可达且交点有墙体证据时给出"可收敛"；不可达或无证据给出原因，供未闭合清单沿用。
+   */
+  function cornerVerdict(own: WallPiece, end: "a" | "b", far: WallPiece, near: P): CornerSkipReason | undefined {
+    // 对方最近的点是墙体自身（T 形贴合的目标）而不是它的端点时，这不是墙角断点：交给贴合与未闭合清单的原有原因。
+    // 共线缺口本来就走沿轴延长，同样不算角部断点。
+    if (distance(far.a, near) > VERTEX_MERGE_M && distance(far.b, near) > VERTEX_MERGE_M) return undefined;
+    if (collinear(own, far)) return undefined;
+    const other = distance(far.a, near) <= distance(far.b, near) ? "a" : "b";
+    // 未闭合清单是只读的再次判定：不受角部扫描"已处理过"的记忆限制，也不改几何。
+    return cornerCandidate(segments.indexOf(own), end, segments.indexOf(far), other, false)?.record.reason;
+  }
+
   // 4) 端点合并成墙网节点（半径 VERTEX_MERGE_M），记录每个节点连接的墙。
   const nodes: WallNode[] = [];
   const nodeOf = (p: P) => {
@@ -342,23 +509,32 @@ export function buildWallNetwork<T extends { a: P; b: P; support: number; rmsM: 
       if (nodes[node]!.degree !== 1) continue;
       dangling++;
       const p = endpointOf(segments[i]!, end), ownAxis = axisOf(segments[i]!);
-      let best: { j: number; gap: number; joinable: boolean } | undefined;
+      let best: { j: number; gap: number; joinable: boolean; corner?: CornerSkipReason } | undefined;
       segments.forEach((other, j) => {
         if (j === i) return;
         const axis = axisOf(other), { t, offset } = project(axis, p);
         const q = t < 0 ? other.a : t > 1 ? other.b : at(other, t), gap = distance(p, q);
         let joinable = t >= 0 && t <= 1 && Math.abs(offset) <= TIE_TOLERANCE_M;
         if (!joinable) joinable = extendAlong(ownAxis, end, q) !== undefined && Math.abs(offset) <= TIE_TOLERANCE_M;
-        if (!best || gap < best.gap - 1e-9) best = { j, gap, joinable };
+        // 角部口径：两段不共线、延长线可交于墙角但保持断开时，沿用角部清单的原因，不另立口径。
+        const corner = !joinable ? cornerVerdict(segments[i]!, end, other, q) : undefined;
+        if (!best || gap < best.gap - 1e-9) best = { j, gap, joinable, corner };
       });
       if (!best) { unclosed.push({ segmentIndex: i, end, pointM: p, reason: "structural-gap", note: "没有其它墙段可比对，孤立方阵或单段墙。" }); continue; }
       const gap = best.gap, gapM = Math.round(gap * 1000) / 1000;
       if (gap >= OPENING_M) { opening++; unclosed.push({ segmentIndex: i, end, pointM: p, reason: "opening", targetSegmentIndex: best.j, gapM, note: `缺口 ${gap.toFixed(2)} m ≥ ${OPENING_M} m，按洞口/门口保留，不连接。` }); continue; }
       if (gap > MAX_EXTENSION_M || !best.joinable) {
+        const corner = best.corner;
         tooLarge++;
         unclosed.push({ segmentIndex: i, end, pointM: p, targetSegmentIndex: best.j, gapM,
-          reason: gap > MAX_EXTENSION_M ? "gap-too-large" : "no-alignment",
-          note: gap > MAX_EXTENSION_M ? `缺口 ${gap.toFixed(2)} m 在 ${MAX_EXTENSION_M}–${OPENING_M} m 之间：不连接，计入未闭合问题。` : `缺口 ${gap.toFixed(2)} m 在延长上限内，但两段不在同一墙轴延长线上，不补斜线。` });
+          // 角部口径与未闭合清单同一来源：可达但被角部规则拒绝的悬空端直接记成角部原因，其余保留原原因并附上角部判定。
+          reason: corner === "too-far" ? "corner-too-far" : corner === "no-evidence" ? "corner-no-evidence" : gap > MAX_EXTENSION_M ? "gap-too-large" : "no-alignment",
+          corner,
+          note: gap > MAX_EXTENSION_M ? `缺口 ${gap.toFixed(2)} m 在 ${MAX_EXTENSION_M}–${OPENING_M} m 之间：不连接，计入未闭合问题。`
+            : corner === "too-far" ? `缺口 ${gap.toFixed(2)} m 在延长上限内，但两段延长线交点距端点多于 ${CORNER_REACH_M} m：不拉斜线，计入未闭合问题。`
+            : corner === "no-evidence" ? `缺口 ${gap.toFixed(2)} m 在墙角可达范围内，但交点附近没有墙体证据：保持断开，计入未闭合问题。`
+            : corner === "too-short" ? `缺口 ${gap.toFixed(2)} m 可在墙角收敛，但收敛后不足最小墙长 ${MIN_PIECE_M} m：保持断开。`
+            : `缺口 ${gap.toFixed(2)} m 在延长上限内，但两段不在同一墙轴延长线上，不补斜线。` });
         continue;
       }
       unclosed.push({ segmentIndex: i, end, pointM: p, reason: "extension-too-short", targetSegmentIndex: best.j, gapM, note: `缺口 ${gap.toFixed(2)} m 在延长上限内，但延伸后不足最小墙长 ${MIN_PIECE_M} m，保留为悬空端。` });
@@ -369,6 +545,9 @@ export function buildWallNetwork<T extends { a: P; b: P; support: number; rmsM: 
   const join: JoinCounts = {
     endpoints: segments.length * 2, connected: segments.length * 2 - dangling, opening, unclosed: tooLarge, dangling,
     joined, extensions, insertedNodes, splits, revertedExtensions: reverted,
+    corners: stillOpen.filter(c => c.outcome === "joined").length, cornerCandidates: stillOpen.length,
   };
-  return { segments, nodes, edges: segments.length, join, unclosed, notes };
+  const openCorners = stillOpen.filter(c => c.outcome === "skipped").length;
+  if (stillOpen.length) notes.push(`角部断点 ${stillOpen.length} 处：${stillOpen.length - openCorners} 处收敛到延长线交点，${openCorners} 处保持断开（原因见角部清单）。`);
+  return { segments, nodes, edges: segments.length, join, unclosed, corners: stillOpen, notes };
 }

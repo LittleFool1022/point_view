@@ -206,6 +206,14 @@ const report = {
     deduped: { ...beforeTopology(before.segments), mergedGroups: fitted.mergeGroups.length },
     // 3) 墙网连接后（修复 b：沿轴延长、T 形插节点、门口不连）。
     joined: { edges: network.edges, wallNodes: network.nodes.length, degreeHistogram: network.nodes.reduce((acc: Record<string, number>, n) => ({ ...acc, [n.degree]: (acc[n.degree] ?? 0) + 1 }), {}), join: network.join, unclosed: network.unclosed },
+    // 4) 角部断点清单（修复 d）：逐对给出坐标/夹角/交点距离/证据与处理结果，与 unclosed 同一来源、同一清单口径。
+    corners: {
+      candidates: network.join.cornerCandidates, joined: network.join.corners,
+      byOutcome: network.corners.reduce((acc: Record<string, number>, c) => ({ ...acc, [c.outcome === "joined" ? "joined" : `skipped:${c.reason}`]: (acc[c.outcome === "joined" ? "joined" : `skipped:${c.reason}`] ?? 0) + 1 }), {}),
+      // 未闭合清单里按角部口径记录的原因条数（与 unclosed 同一数组，不另立口径）。
+      unclosedByCornerReason: network.unclosed.reduce((acc: Record<string, number>, u) => (u.corner ? { ...acc, [u.corner]: (acc[u.corner] ?? 0) + 1 } : acc), {}),
+      pairs: network.corners,
+    },
     sourcePoints: working.visible.length, inHeightBandPoints: inBand, evidenceCells: fitted.evidenceCells,
     fittedSegments: fitted.fittedSegments, dedupedSegments: fitted.dedupedSegments, joinedSegments: segments.length, mergedGroups: fitted.mergeGroups.length,
     wallCandidates: segments.length, openingsAutoDetected: 0,
