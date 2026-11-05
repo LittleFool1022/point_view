@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CORNER_REACH_M, EXTENSION_MIN_M, MIN_PIECE_M, OPENING_M, MAX_EXTENSION_M, buildWallNetwork } from "../src/pipeline/wallNetwork";
+import { CORNER_REACH_M, EXTENSION_MIN_M, FREE_END_SNAP_M, MIN_PIECE_M, OPENING_M, MAX_EXTENSION_M, TIE_TOLERANCE_M, buildWallNetwork } from "../src/pipeline/wallNetwork";
 type P = [number, number];
 const seg = (a: P, b: P) => ({ a, b, support: 20, rmsM: .01 });
 const length = (s: { a: P; b: P }) => Math.hypot(s.b[0] - s.a[0], s.b[1] - s.a[1]);
@@ -261,6 +261,106 @@ describe("墙网连接规则", () => {
     expect(door.segments[0]!.b).toEqual([2, 0]);
     expect(door.segments[1]!.a).toEqual([3.2, 0]);
     expect(door.segments[1]!.b[0]).toBeCloseTo(8, 6);
+  });
+
+  /**
+   * 自由端聚类吸附（Issue #27，修复 g）：只作用于度 1 自由端，半径为 FREE_END_SNAP_M，
+   * 落点优先取两墙轴交点、平行时取证据加权平均并投到证据较多的一方墙轴上。
+   */
+  describe("自由端聚类吸附", () => {
+    it("半径取值：命名常量，且不超过 Issue 规定的 0.3 m 上限", () => {
+      expect(FREE_END_SNAP_M).toBeGreaterThan(0);
+      expect(FREE_END_SNAP_M).toBeLessThanOrEqual(.3);
+      // 与贴合容差同尺度：短于它无法区分端点抖动与真实缺口。
+      expect(FREE_END_SNAP_M).toBe(TIE_TOLERANCE_M);
+    });
+
+    it("behind-end 端点对（两端点直线距 0.04 m）吸附为同一节点", () => {
+      // 两段沿轴反向错位的墙：延长线平行，沿轴延长也接不上（target-behind-end），
+      // 端点直线距离 0.04 m 属拟合角度/端点噪声，由聚类吸附收成同一个节点。
+      const network = buildWallNetwork([seg([0, 0], [4, 0]), seg([4, .04], [8, .04])], { freeEndSnapM: 0 });
+      expect(network.join.snaps).toBe(0);
+      const snapped = buildWallNetwork([seg([0, 0], [4, 0]), seg([4, .04], [8, .04])]);
+      expect(snapped.join.snaps).toBe(2);
+      const joint = snapped.nodes.find(n => n.degree === 2)!;
+      // 落点投到证据较多一方的墙轴（两段证据相同 → 取前一段的 y=0），两端点合成同一个节点。
+      expect(joint.p[1]).toBeCloseTo(0, 6);
+      expect(snapped.join.dangling).toBeLessThan(network.join.dangling);
+    });
+
+    it("横向偏差超贴合容差的端点对由吸附收成同一节点（真实样本同类：偏 0.037 m）", () => {
+      // 两条近共线的长墙首尾反向错位：沿轴延长要求横向偏差 ≤ 贴合容差且方向对得上，这两条都不成立；
+      // 端点直线距离 0.04 m 属拟合噪声，由吸附收成同一个节点。真实样本上这类对横向偏差 0.037 m。
+      const walls = [seg([0, 0], [4, 0]), seg([4, .04], [8, .04])];
+      const before = buildWallNetwork(walls, { freeEndSnapM: 0 });
+      expect(before.join.snaps).toBe(0);
+      expect(before.join.dangling).toBe(4);
+      const network = buildWallNetwork(walls);
+      expect(network.join.snaps).toBe(2);
+      expect(network.join.dangling).toBe(2);
+      // 两段墙的墙轴方向不变（仍各沿自己的拟合方向：一条 y=0、一条 y=0.04）。
+      const first = network.segments.find(s => s.sourceIndex === 0)!, second = network.segments.find(s => s.sourceIndex === 1)!;
+      expect(first.a[1]).toBeCloseTo(0, 6);
+      expect(second.b[1]).toBeCloseTo(.04, 6);
+      expect(first.b).toEqual(second.a);
+    });
+
+    it("1.2 m 门口两侧的自由端不吸附", () => {
+      const door = buildWallNetwork([seg([0, 0], [2, 0]), seg([3.2, 0], [8, 0])]);
+      expect(door.join.snaps).toBe(0);
+      // 门口两侧这一对（1.2 m）互为最近邻但超出半径：记一条"超出半径"，两端点都停在原位。
+      const beyond = door.snaps.filter(r => r.outcome === "skipped" && r.reason === "beyond-radius");
+      expect(beyond).toHaveLength(1);
+      expect(beyond[0]!.distanceM).toBeCloseTo(1.2, 2);
+      expect(door.segments[0]!.b).toEqual([2, 0]);
+      expect(door.segments[1]!.a).toEqual([3.2, 0]);
+      // 门口两侧的缺口在未闭合清单里按两侧各记一条（每段的两个端头都会登记）。
+      expect(door.unclosed.filter(u => u.reason === "opening" && u.gapM === 1.2)).toHaveLength(2);
+    });
+
+    it("中间隔着一面墙的两处自由端不吸附，也不跨墙连接", () => {
+      // 两面墙的端点相距 0.06 m，但中间横着一面墙：贴合/插点阶段先把横墙接到两端所在墙轴上，
+      // 这对接头因此不再是"两点之间没有任何墙"的自由端对；吸附阶段不得跨过中间的墙把它们接上。
+      const walls = [seg([0, 0], [4, 0]), seg([4.06, 0], [8, 0]), seg([4.03, -1], [4.03, .6])];
+      const network = buildWallNetwork(walls);
+      expect(network.snaps.some(s => s.outcome === "snapped" && s.segments.includes(0) && s.segments.includes(1))).toBe(false);
+      // 中间那面墙被贴合到两端所在墙轴上，两侧各自的缺口由既有规则处理，吸附不跨墙补线。
+      const middle = network.segments.filter(s => s.sourceIndex === 2);
+      expect(middle.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it("同一墙段的自身两端不互吸", () => {
+      // 单独一段 0.3 m 的短墙：两端相距 0.3 m，是同一墙段自己的两个端点，不能互相吸附。
+      const network = buildWallNetwork([seg([0, 0], [.3, 0])]);
+      expect(network.join.snaps).toBe(0);
+      expect(network.segments[0]!.a).toEqual([0, 0]);
+      expect(network.segments[0]!.b).toEqual([.3, 0]);
+    });
+
+    it("只移动端点、不改拟合来源记录：sources 与证据格数原样保留", () => {
+      const a = { ...seg([0, 0], [4, 0]), sources: [7] }, b = { ...seg([4, .04], [8, .04]), sources: [8, 9] };
+      const network = buildWallNetwork([a, b]);
+      expect(network.join.snaps).toBe(2);
+      expect(network.segments.find(s => s.sourceIndex === 0)!.sources).toEqual([7]);
+      expect(network.segments.find(s => s.sourceIndex === 1)!.sources).toEqual([8, 9]);
+      expect(network.segments.map(s => s.support)).toEqual([20, 20]);
+    });
+
+    it("吸附记录给出间距、落点与落点来源，便于逐对复核", () => {
+      // 平行两轴没有交点：落点记 evidence-weighted，并投到证据较多一方的墙轴上。
+      const network = buildWallNetwork([seg([0, 0], [4, 0]), seg([4, .04], [8, .04])]);
+      const joined = network.snaps.filter(r => r.outcome === "snapped");
+      expect(joined).toHaveLength(1);
+      expect(joined[0]!.landingSource).toBe("evidence-weighted");
+      expect(joined[0]!.distanceM).toBeCloseTo(.04, 2);
+      expect(joined[0]!.landing[1]).toBeCloseTo(0, 6);
+      expect(joined[0]!.landing[0]).toBeCloseTo(4, 2);
+      // 吸附后任一段长度都还 > 0：吸附只移动端点，不吞掉墙段。
+      expect(joined[0]!.lengthAfterM.every(v => v > 0)).toBe(true);
+      // 落点来源只有两种取值，且与落点是否取到交点一致：可见的角部由既有角接处理，
+      // 吸附只承担"各规则都判过之后仍剩下的小错位"，因此样本上常见的是证据加权。
+      expect(["intersection", "evidence-weighted"]).toContain(joined[0]!.landingSource);
+    });
   });
 
   it("平行近邻墙不被合并，开放端原因逐条给出位置", () => {
