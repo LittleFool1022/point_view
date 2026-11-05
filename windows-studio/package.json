@@ -17,7 +17,8 @@
     "test:ui": "playwright test --config playwright.config.ts",
     "measure:baseline": "vite-node scripts/measure-baseline.ts",
     "diagnose:room-closure": "vite-node scripts/diagnose-room-closure.ts",
-    "replay:room-faces": "vite-node scripts/replay-room-faces.ts"
+    "replay:room-faces": "vite-node scripts/replay-room-faces.ts",
+    "survey:series-gaps": "vite-node scripts/survey-series-gaps.ts"
   },
   "devDependencies": {
     "@loaders.gl/core": "4.4.4",
