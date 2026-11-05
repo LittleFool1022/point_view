@@ -382,7 +382,8 @@ export function buildWallNetwork<T extends { a: P; b: P; support: number; rmsM: 
   //     不进未闭合清单的其它口径（§4 的悬空端原因沿用同一清单）。
   const corners: CornerJoin[] = [];
   let cornerJoins = 0;
-  /** 已处理过的端点组合，避免同一对往返重复检查。 */
+  /** 已判定过的端点组合（含镜像顺序）：收敛会移动端点，重复扫描时不能把同一对再判定一遍，
+   *  否则已收敛的一对会以收敛后的坐标被重新记成"交点过远"而覆盖收敛结论。 */
   const cornerSeen = new Set<string>();
   // 一轮扫描逐对记录角部断点；收敛会移动端点，因此重复扫描直到本轮没有新的收敛（上限防死循环）。
   for (let guard = 0; guard < 256; guard++) {
@@ -391,15 +392,15 @@ export function buildWallNetwork<T extends { a: P; b: P; support: number; rmsM: 
     // 角部清单因此逐对可读，也不会对同一个断点往返重复记录。
     for (let i = 0; i < segments.length; i++) for (const end of ["a", "b"] as const) {
       if (acted || jointed(i, end)) continue;
-      const key = (j: number, other: "a" | "b") => `${i}:${end}|${j}:${other}`;
       for (let j = 0; j < segments.length && !acted; j++) {
         if (i === j) continue;
         for (const other of ["a", "b"] as const) {
-          if (cornerSeen.has(key(j, other))) continue;
+          const key = `${i}:${end}|${j}:${other}`;
+          if (cornerSeen.has(key)) continue;
           const candidate = cornerCandidate(i, end, j, other);
           if (!candidate) continue;
-          cornerSeen.add(key(j, other));
-          // 同一对端点从两端都会被走到：镜像组合也标记为已处理，角部清单里一对只出现一次。
+          cornerSeen.add(key);
+          // 同一对端点从两端都会被走到：镜像组合也标记为已判定，角部清单里一对只出现一次。
           cornerSeen.add(`${j}:${other}|${i}:${end}`);
           corners.push(candidate.record);
           if (candidate.outcome === "joined") { acted = true; cornerJoins++; }
@@ -474,8 +475,8 @@ export function buildWallNetwork<T extends { a: P; b: P; support: number; rmsM: 
   }
 
   /**
-   * 悬空端与另一墙段的角部判定（只读，不改几何）：两段不共线、端点相距 ≤ MAX_EXTENSION_M、
-   * 延长线交点可达且交点有墙体证据时给出"可收敛"；不可达或无证据给出原因，供未闭合清单沿用。
+   * 悬空端与另一墙段的角部判定（只读，不改几何）：对方最近的点必须是它的端点（丁字接头的墙身不算墙角），
+   * 且两段不共线；随后按角部规则给出原因（交点过远/无墙体证据/收敛后过短），供未闭合清单沿用。
    */
   function cornerVerdict(own: WallPiece, end: "a" | "b", far: WallPiece, near: P): CornerSkipReason | undefined {
     // 对方最近的点是墙体自身（T 形贴合的目标）而不是它的端点时，这不是墙角断点：交给贴合与未闭合清单的原有原因。
