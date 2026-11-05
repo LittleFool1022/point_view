@@ -243,11 +243,9 @@ function blockage(index: number, end: "a" | "b", network: ReturnType<typeof buil
 }
 const extensionReport = {
   policies: network.policies,
-  // 旧口径复跑（同一去重输入）：被最小墙长拦下的"延长后不足 0.8 m"条数，与新口径对照。
+  // 旧口径复跑（同一去重输入）：延长段也按最小墙长拦截时的计数，用来复现并对照基线。
   baseline: { extensions: legacyNetwork.join.extensions, revertedExtensions: legacyNetwork.join.revertedExtensions, dangling: legacyNetwork.join.dangling, unclosedByReason: legacyNetwork.unclosed.reduce((acc: Record<string, number>, u) => ({ ...acc, [u.reason]: (acc[u.reason] ?? 0) + 1 }), {}) },
   current: { extensions: network.join.extensions, revertedExtensions: network.join.revertedExtensions, dangling: network.join.dangling, unclosedByReason: network.unclosed.reduce((acc: Record<string, number>, u) => ({ ...acc, [u.reason]: (acc[u.reason] ?? 0) + 1 }), {}) },
-  // 旧口径复跑：同一份去重输入、同一套构造，只把"延长段也按最小墙长拦截"打开，能复现出基线计数。
-  replay: { dangling: legacyNetwork.join.dangling, join: legacyNetwork.join },
   // 新口径下仍断开的悬空端（不含洞口）及被挡住的判据；并入既有未闭合清单口径，不另起平行清单。
   stillBlocked: network.unclosed.filter(u => u.reason !== "opening").map(u => ({ ...blockage(u.segmentIndex, u.end, network), reason: u.reason, corner: u.corner, note: u.note })),
 };
