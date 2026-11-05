@@ -104,6 +104,17 @@ class SourceStore {
     source.pages = next;
     return next.map(pageInfo);
   }
+  /** 解除当前 token 的关键帧卷关联；只删除本进程为编辑生成的临时卷，不碰用户原件。 */
+  async clearKeyframePages(token) {
+    const source = this.entries.get(token);
+    if (!source) throw Error("源文件已释放。");
+    const edits = source.edits;
+    delete source.keyframePages;
+    source.pages = [];
+    source.edits = [];
+    await Promise.all(edits.map(file => fs.unlink(file).catch(() => {})));
+    return [];
+  }
   async readPage(token, id) {
     const source = this.entries.get(token), page = source?.pages.find(page => page.id === id);
     if (!page) throw Error("关键帧卷不存在或已释放。");
@@ -189,10 +200,11 @@ class SourceStore {
       }
     } finally { await handle.close(); }
     const paged = manifest.schema === "survey-project/3";
+    const metric = manifest.source?.units === "m";
     const source = await this.register(file, { ...options, offset, name: manifest.source.name, size: manifest.source.size,
       expectedHash: manifest.source.sha256, allowTrailing: paged });
     try {
-      if (paged) {
+      if (paged && metric) {
         let cursor = offset + source.size;
         const pages = manifest.keyframePages.map(page => { const next = { ...page, file, offset: cursor }; cursor += page.bytes; return next; });
         source.keyframePages = await this.attachPages(source.token, pages);
@@ -200,6 +212,15 @@ class SourceStore {
         const active = manifest.activeKeyframePage ?? pages[0].id;
         manifest.pairedReview = JSON.parse(Buffer.from(await this.readPage(source.token, active)).toString("utf8"));
         manifest.activeKeyframePage = active;
+      } else if (!metric) {
+        // 旧版可能在毫米工程中保留了米制关键帧卷；不恢复不兼容的复核关联。
+        delete manifest.pairedReview;
+        delete manifest.pairedReviewIndex;
+        delete manifest.activeKeyframePage;
+        if (paged) {
+          delete manifest.keyframePages;
+          manifest.schema = "survey-project/2";
+        }
       }
       return { name: source.name, native: source, project: manifest };
     } catch (error) { await this.release(source.token); throw error; }
@@ -208,11 +229,19 @@ class SourceStore {
     const source = this.entries.get(token);
     if (!source) throw Error("请重新打开源文件。");
     if ([...this.entries.values()].some(s => [s.file, ...s.pages.map(page => page.file)].some(input => path.resolve(input).toLowerCase() === path.resolve(file).toLowerCase()))) throw Error("请另存为新工程文件，不能覆盖正在使用的源文件。");
-    const paged = source.pages.length > 0;
-    if (paged && state.pairedReview) await this.updatePage(token, state.activeKeyframePage ?? source.pages[0].id, state.pairedReview);
+    const metric = state.source?.units === "m";
+    // 非米制工程不能持久化关键帧卷；即使调用方漏清 token，也不能把旧卷写回工程。
+    const pages = metric ? source.pages : [];
+    const paged = pages.length > 0;
+    if (paged && state.pairedReview) await this.updatePage(token, state.activeKeyframePage ?? pages[0].id, state.pairedReview);
     const manifest = { ...state, schema: paged ? "survey-project/3" : "survey-project/2",
       source: { ...state.source, name: source.name, size: source.size, sha256: source.sha256 } };
-    if (paged) { manifest.keyframePages = source.pages.map(pageInfo); delete manifest.pairedReview; delete manifest.pairedReviewIndex; }
+    if (paged) { manifest.keyframePages = pages.map(pageInfo); delete manifest.pairedReview; delete manifest.pairedReviewIndex; }
+    else {
+      delete manifest.keyframePages;
+      delete manifest.pairedReviewIndex;
+      if (!metric) { delete manifest.pairedReview; delete manifest.activeKeyframePage; }
+    }
     const body = Buffer.from(JSON.stringify(manifest), "utf8");
     if (body.length > MAX_MANIFEST) throw Error("工程清单过大。");
     const header = Buffer.alloc(12); (paged ? MAGIC3 : MAGIC).copy(header); header.writeUInt32LE(body.length, 8);
@@ -221,8 +250,8 @@ class SourceStore {
     try {
       await fs.writeFile(temporary, Buffer.concat([header, body]), { flag: "wx" }); created = true;
       let done = 0;
-      const total = source.size + source.pages.reduce((sum, page) => sum + page.size, 0);
-      for (const range of [source, ...source.pages]) await copyRange(range, temporary, { signal, progress: size => { done += size; progress(done, total); } });
+      const total = source.size + pages.reduce((sum, page) => sum + page.size, 0);
+      for (const range of [source, ...pages]) await copyRange(range, temporary, { signal, progress: size => { done += size; progress(done, total); } });
       const stat = await source.handle.stat();
       if (stat.size !== source.stat.size || stat.mtimeMs !== source.stat.mtimeMs) throw Error("源文件已变化，未保存工程。");
       signal?.throwIfAborted(); await fs.rename(temporary, file); created = false;

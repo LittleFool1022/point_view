@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld("surveyDesktop", {
   keyframePage: (token, id) => ipcRenderer.invoke("survey:keyframe-page", token, id),
   updateKeyframePage: (token, id, review) => ipcRenderer.invoke("survey:update-keyframe-page", token, id, review),
   addKeyframePage: (token, review) => ipcRenderer.invoke("survey:add-keyframe-page", token, review),
+  clearKeyframePages: token => ipcRenderer.invoke("survey:clear-keyframe-pages", token),
   keyframeIndex: token => ipcRenderer.invoke("survey:keyframe-index", token),
   semanticAssets: () => ipcRenderer.invoke("survey:semantic-assets"),
   open: kind => ipcRenderer.invoke("survey:open", kind),

@@ -13,7 +13,7 @@ import type { ClipRule, EditedPointCloud } from "./domain/cleaning";
 import type {BrushStroke,BrushEditResult} from "./domain/brush";
 import { PairedWorkspace } from "./PairedWorkspace";
 import { DeviceImport } from "./DeviceImport";
-import type { OpenedInput } from "./domain/source";
+import type { KeyframePage, OpenedInput } from "./domain/source";
 import { buildingFromPairedReview, addKeyframeOpening, linkKeyframeOpening, type OpeningPlacement } from "./domain/pairedBuilding";
 import { createUnifiedDelivery, type IfcArtifact } from "./domain/unifiedDelivery";
 import { MAX_PAIRED_BYTES, cameraForFrame, verifyPairedReview, type PairedCandidate, type PairedReview } from "./domain/pairedReview";
@@ -25,6 +25,7 @@ import { demoRoom } from "./domain/demo";
 import { encodeProject, decodeProject, validateProjectState, type SurveyProject, type SurveySource } from "./domain/project";
 import type { AccuracyRecord } from "./domain/accuracy";
 import type { SourceUnit } from "./pipeline/analysis";
+import { assessImportExtents, SOURCE_UNIT_LABELS, type ImportCheck, type ImportResult } from "./domain/importCheck";
 
 import { RenderWorkspace } from "./RenderWorkspace";
 import { DEFAULT_RENDER_SCENE, type RenderSceneSettings } from "./domain/renderScene";
@@ -57,6 +58,7 @@ export function App() {
   const [dimensionKind,setDimensionKind]=useState<CadDimension['kind']>('aligned'),[dimensionMode,setDimensionMode]=useState<CadDimension['kind']>();
   const [cadHistory,setCadHistory]=useState<{undo:CadDimension[][];redo:CadDimension[][]}>({undo:[],redo:[]});
   const [drawing, setDrawing] = useState<DrawingModel>(), [projection, setProjection] = useState<CadProjection>("xy"), [units, setUnits] = useState<SourceUnit>("m");
+  const [importCheck, setImportCheck] = useState<ImportCheck>(), [unitConfirmed, setUnitConfirmed] = useState(false);
   const [settings, setSettings] = useState<CadDrawingSettings>({ ...DEFAULT_CAD_DRAWING_SETTINGS,alignToPrincipalAxis:true,roundingMm:1 });
   const [annotations, setAnnotations] = useState<CadAnnotation[]>([]), [label, setLabel] = useState(""), [category, setCategory] = useState<NonNullable<CadAnnotation["category"]>>("text");
   const [placing, setPlacing] = useState<Pick<CadAnnotation, "text" | "category">>(), [selectedAnnotationId, setSelectedAnnotationId] = useState<string>();
@@ -85,16 +87,69 @@ export function App() {
     return new Promise<T>((resolve, reject) => { if (pending.current) { reject(Error("已有分析任务正在运行。")); return; } const id = ++sequence.current; pending.current = { id, resolve: value => resolve(value as T), reject }; worker.current!.postMessage({ id, ...data }); });
   }
   async function action(stage: string, callback: () => Promise<void>) { setBusy(stage); try { await callback(); } catch (e) { setNotice(e instanceof Error ? e.message : String(e)); } finally { setBusy(""); } }
+  /** 解码已改变 worker 缓存但尚未提交界面状态时，必须丢弃缓存，避免后续继续用错尺度。 */
+  function discardAnalysisWorker() {
+    pending.current?.reject(Error("分析已中止，请重试。"));
+    pending.current = undefined;
+    worker.current?.terminate();
+    worker.current = undefined;
+  }
+  function applyImportedSource(next: SurveySource, decoded: ImportResult, check: ImportCheck) {
+    if (source?.native && source.native.token !== next.native?.token) void window.surveyDesktop?.release(source.native.token);
+    // 新尺度下旧裁剪、图纸、标注、模型、精度记录和关键帧关联均不可沿用。
+    setPairedReview(undefined); setActiveKeyframePage(undefined); setBuilding(undefined); setAccuracy(undefined); setRenderScene({...DEFAULT_RENDER_SCENE}); setModelHistory({undo:[],redo:[]});
+    setEditHistory({ undo: (next.clips ?? []).map((_, i) => next.clips!.slice(0, i)), redo: [] });
+    setSource(next); setCloud(decoded.cloud); setImportCheck(check); setUnitConfirmed(false); setUnits(next.units);
+    setDrawing(undefined); setCadHistory({undo:[],redo:[]});setDimensionMode(undefined);setAnnotations([]); setPlacing(undefined); setStale(false); setDirty(true); setView("drawing");
+    const count = decoded.cloud.sourcePointCount ?? decoded.cloud.visible.length;
+    setNotice(`已导入 ${next.name} · ${count.toLocaleString()} 点 · 显示 ${decoded.cloud.visible.length.toLocaleString()} 点${next.synthetic ? " · 合成示例，非实测" : ""}`);
+  }
   async function importSource(input: SurveySource) {
     const next = { ...input, key: crypto.randomUUID() };
     try {
-      const decoded = await request<PointCloudData>({ action: "import", source: next });
-      if(next.deviceReceipt && decoded.sourcePointCount !== next.deviceReceipt.points)throw Error("设备点数回执与完整点云不一致，未替换当前工程。");
-      if (source?.native && source.native.token !== next.native?.token) void window.surveyDesktop?.release(source.native.token);
-      setPairedReview(undefined); setActiveKeyframePage(undefined); setBuilding(undefined); setAccuracy(undefined); setRenderScene({...DEFAULT_RENDER_SCENE}); setModelHistory({undo:[],redo:[]});
-      setEditHistory({ undo: (next.clips ?? []).map((_, i) => next.clips!.slice(0, i)), redo: [] });
-      setSource(next); setCloud(decoded); setDrawing(undefined); setCadHistory({undo:[],redo:[]});setDimensionMode(undefined);setAnnotations([]); setPlacing(undefined); setStale(false); setDirty(true); setView("drawing"); setNotice(`已导入 ${next.name} · ${(decoded.sourcePointCount ?? decoded.visible.length).toLocaleString()} 点 · 显示 ${decoded.visible.length.toLocaleString()} 点${next.synthetic ? " · 合成示例，非实测" : ""}`);
+      const decoded = await request<ImportResult>({ action: "import", source: next });
+      if(next.deviceReceipt && decoded.cloud.sourcePointCount !== next.deviceReceipt.points)throw Error("设备点数回执与完整点云不一致，未替换当前工程。");
+      applyImportedSource(next, decoded, assessImportExtents(decoded.bounds, decoded.cloud.sourcePointCount ?? decoded.cloud.visible.length));
     } catch (e) { if (next.native && next.native.token !== source?.native?.token) void window.surveyDesktop?.release(next.native.token); throw e; }
+  }
+  /** 复用当前源文件按另一单位重解码；先解码成功再提交，取消或失败均保留原工程。 */
+  function switchUnits(nextUnit: SourceUnit) {
+    if (!source || busy || nextUnit === source.units) return;
+    const label = SOURCE_UNIT_LABELS[nextUnit];
+    if (!window.confirm(`按${label}重新解码会清理当前工程的裁剪、图纸、标注、建筑模型、精度记录和关键帧关联。原始文件不会被修改。是否继续？`)) {
+      setNotice(`已取消按${label}重新解码，当前工程保持不变。`); return;
+    }
+    const next = { ...source, units: nextUnit, clips: [], key: crypto.randomUUID() };
+    void action(`按${label}重新解码当前源文件`, async () => {
+      const decoded = await request<ImportResult>({ action: "import", source: next });
+      let committed = next;
+      try {
+        if (next.deviceReceipt && decoded.cloud.sourcePointCount !== next.deviceReceipt.points) throw Error("设备点数回执与完整点云不一致，未切换单位。");
+        // 桌面 token 同时持有已附加的原图卷；只在解码成功后解除，避免失败时丢失原关联。
+        if (next.native && window.surveyDesktop?.clearKeyframePages) {
+          let pages: KeyframePage[];
+          try { pages = await window.surveyDesktop.clearKeyframePages(next.native.token); }
+          catch (error) { throw Error(`清理旧关键帧卷失败，未切换单位：${error instanceof Error ? error.message : String(error)}`); }
+          committed = { ...next, native: { ...next.native, keyframePages: pages } };
+        }
+        const check = assessImportExtents(decoded.bounds, decoded.cloud.sourcePointCount ?? decoded.cloud.visible.length);
+        applyImportedSource(committed, decoded, check);
+        setNotice(`已按${label}重新解码 ${next.name}：${check.sizeM.map(v => v.toFixed(2)).join(" × ")} m · ${check.pointCount.toLocaleString()} 点。旧尺度成果已清理${check.suspicious ? "；当前范围仍需核对。" : "。"}`);
+      } catch (error) {
+        discardAnalysisWorker();
+        throw error;
+      }
+    });
+  }
+  /** 可疑单位未确认时拦住成图；正常范围不增加步骤。 */
+  function confirmSuspiciousUnit() {
+    if (!source || !importCheck?.suspicious || unitConfirmed) return true;
+    const reasons = importCheck.reasons.join(" ");
+    if (window.confirm(`当前按${SOURCE_UNIT_LABELS[source.units]}解码的点云范围可疑：${reasons}是否仍按当前单位生成工程图？取消后可先重新解码当前源文件。`)) {
+      setUnitConfirmed(true); return true;
+    }
+    setNotice("已暂缓生成；请先核对源单位，可在导入核对条重新解码当前源文件。");
+    return false;
   }
   const canReplace = () => !dirty || window.confirm("当前工程有未保存的更改，是否放弃并打开其他成果？");
   function importFile() { if (!canReplace()) return; void action("读取测量成果", async () => { const f = await openFile("cloud"); if (f) await importSource({ name: f.name, bytes: f.data, file: f.file, native: f.native, units, synthetic: false }); }); }
@@ -174,6 +229,7 @@ export function App() {
   }
   function buildPairedModel() {
     if(!source||!pairedReview||building)return;
+    if(!confirmSuspiciousUnit())return;
     void action("由同会话墙带建立建筑草案与平面图",async()=>{
       const review=pairedReview.walls.length?pairedReview:{...pairedReview,walls:await request<PairedReview["walls"]>({action:"paired-walls",source})};
       if(review!==pairedReview)setPairedReview(review);
@@ -256,6 +312,7 @@ export function App() {
   }
   function generateBuilding(options: BuildingOptions) {
     if(!source)return;
+    if(!confirmSuspiciousUnit())return;
     void action("从当前楼层点云提取墙体候选",async()=>{
       const next=await request<BuildingModel>({action:"building",source,buildingOptions:options});
       setModelHistory({undo:[...modelHistory.undo,building].slice(-50),redo:[]});setBuilding({...next,revision:(building?.revision??0)+1});if(drawing && (drawing.parameters as any).buildingRevision)setStale(true);setDirty(true);setNotice(`已生成 ${next.walls.length} 条墙候选和 ${next.rooms.length} 个闭合房间；厚高与墙轴均需复核。`);
@@ -286,6 +343,7 @@ export function App() {
   }
   function modelDrawing(levelId: string, refresh = false) {
     if (!building || !source) return;
+    if (!confirmSuspiciousUnit()) return;
     void action("由建筑模型派生平面图", async () => {
       if (building.sourceStamp !== sourceStamp(source)) throw Error("建筑模型测量依据已过期。");
       const next = drawingFromBuilding(building, levelId, settings, cloud?.sourcePointCount ?? cloud?.visible.length ?? 0);
@@ -297,6 +355,7 @@ export function App() {
   }
   function generate() {
     if (!source) return;
+    if (!confirmSuspiciousUnit()) return;
     const count=drawing?.dimensions?.filter(d=>d.source==='manual').length??0;
     if(count&&!window.confirm(`重新生成图纸会清除 ${count} 条人工尺寸，请先保存工程。是否继续？`))return;
     setCadHistory({undo:[],redo:[]});setDimensionMode(undefined);
@@ -479,6 +538,16 @@ export function App() {
           <button className="primary" disabled={!cloud || !!busy} onClick={generate}><Play size={14}/>{stale ? "更新工程图" : "生成工程图"}</button>
         </div>
       </div>
+      {source && importCheck && <div className={`import-check-bar ${importCheck.suspicious ? "is-suspicious" : ""}`} role="group" aria-label="导入单位与范围核对">
+        <div className="import-check-items">
+          <span className="import-check-pill">源单位 {SOURCE_UNIT_LABELS[source.units]}</span>
+          {source.deviceReceipt && <span className="import-check-note">设备清单未提供单位</span>}
+          <span className="import-check-stat">范围 {importCheck.sizeM.map(v => v.toFixed(2)).join(" × ")} m</span>
+          <span className="import-check-stat">{importCheck.pointCount.toLocaleString()} 点</span>
+          {importCheck.suspicious && <span className="import-check-warning">范围可疑{importCheck.reasons.length ? ` · ${importCheck.reasons.slice(0, 2).join(" ")}` : ""}</span>}
+        </div>
+        <button className="import-switch-btn" disabled={!!busy} onClick={() => switchUnits(source.units === "m" ? "mm" : "m")}>{source.units === "m" ? "按毫米重新导入" : "按米重新导入"}</button>
+      </div>}
       <div
         ref={workBodyRef}
         className={`work-body ${focusPane !== "none" ? `focus-${focusPane}` : ""} ${resizing ? "is-resizing" : ""}`}

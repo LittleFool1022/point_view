@@ -15,7 +15,10 @@
     "pack:win": "npm run build && electron-builder --win --x64 --publish never",
     "test": "vitest run --config vitest.config.ts",
     "test:ui": "playwright test --config playwright.config.ts",
-    "measure:baseline": "vite-node scripts/measure-baseline.ts"
+    "measure:baseline": "vite-node scripts/measure-baseline.ts",
+    "diagnose:room-closure": "vite-node scripts/diagnose-room-closure.ts",
+    "replay:room-faces": "vite-node scripts/replay-room-faces.ts",
+    "cleanup:case-study": "vite-node scripts/cleanup-case-study.ts"
   },
   "devDependencies": {
     "@loaders.gl/core": "4.4.4",
@@ -32,6 +35,7 @@
     "laz-perf": "0.0.6",
     "lucide-react": "0.536.0",
     "onnxruntime-web": "1.31.1",
+    "pngjs": "7.0.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "three": "0.185.1",
