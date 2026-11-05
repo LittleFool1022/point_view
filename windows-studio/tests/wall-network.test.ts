@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CORNER_REACH_M, OPENING_M, MAX_EXTENSION_M, buildWallNetwork } from "../src/pipeline/wallNetwork";
+import { CORNER_REACH_M, EXTENSION_MIN_M, MIN_PIECE_M, OPENING_M, MAX_EXTENSION_M, buildWallNetwork } from "../src/pipeline/wallNetwork";
 type P = [number, number];
 const seg = (a: P, b: P) => ({ a, b, support: 20, rmsM: .01 });
 const length = (s: { a: P; b: P }) => Math.hypot(s.b[0] - s.a[0], s.b[1] - s.a[1]);
@@ -198,14 +198,69 @@ describe("墙网连接规则", () => {
     expect(extended.join.revertedExtensions).toBe(0);
   });
 
-  it("一侧延伸回退时另一侧仍可补缝，回退记录不被覆盖", () => {
-    // 0.1 m 的短墙补不到成墙长度（回退），但 0.6→6 m 的墙可以顺墙轴补到 0.1 m 处连上。
-    const network = buildWallNetwork([seg([0, 0], [.1, 0]), seg([.6, 0], [6, 0])]);
-    expect(network.join.revertedExtensions).toBe(1);
+  it("短段不越过极限拉长：连接延长段只受 EXTENSION_MIN_M 约束，长段可反向补到短段端点", () => {
+    // 修复 f（Issue #24）后的口径：0.1 m 的短段与 0.3 m 起点的墙之间 0.2 m 缺口由长段沿墙轴补上
+    // （短段保持 0.1 m，不再被拉成 0.9 m 的墙）。
+    const network = buildWallNetwork([seg([0, 0], [.1, 0]), seg([.3, 0], [6, 0])]);
+    expect(network.join.revertedExtensions).toBe(0);
     expect(network.join.extensions).toBe(1);
-    expect(network.notes.join(" ")).toContain("延伸不足");
-    expect(network.segments.map(s => s.b)).toContainEqual([.1, 0]);
-    expect(network.segments.some(s => s.a[0] === .1 && s.b[0] === 6)).toBe(true);
+    expect(network.segments.some(s => s.a[0] === 0 && Math.abs(s.b[0] - .1) < 1e-9)).toBe(true);
+    // 拼缝落在短段端点处（延长方向沿途的端点优先，长段从 0 起与短段共点），短段仍是 0.1 m。
+    expect(network.segments.some(s => s.a[0] === 0 && s.b[0] === 6)).toBe(true);
+    // 0.5 m 缺口（延长上限内）同样只由一侧补上，不留"延伸不足"回退：旧口径下短段被顶到 0.6 m 才算连上。
+    const wide = buildWallNetwork([seg([0, 0], [.1, 0]), seg([.6, 0], [6, 0])]);
+    expect(wide.join.extensions).toBe(1);
+    expect(wide.join.revertedExtensions).toBe(0);
+    expect(wide.segments.some(s => Math.abs(s.b[0] - .6) < 1e-9)).toBe(true);
+  });
+
+  it("短延长段（<0.8 m）连接两段已确认墙体应通过：旧口径被 extension-too-short 拦下的那一对", () => {
+    // 修复 f（Issue #24）验收夹具：0.2 m 的短墙与 0.7 m 起点的墙之间 0.5 m 缺口（延长上限内），
+    // 旧口径要求"延长后的整段 ≥ 0.8 m"，短墙被拉成 0.7 m 仍不足而被拒；新口径只看延长段本身（≥ 0.12 m）。
+    const network = buildWallNetwork([seg([0, 0], [.2, 0]), seg([.7, 0], [2.5, 0])]);
+    expect(EXTENSION_MIN_M).toBeLessThan(MIN_PIECE_M);
+    expect(network.join.extensions).toBe(1);
+    expect(network.join.revertedExtensions).toBe(0);
+    expect(network.unclosed.some(u => u.reason === "extension-too-short")).toBe(false);
+    // 延长后两段在同一节点相接，墙轴方向不变、没有斜线。
+    expect(network.segments.map(s => s.b)).toContainEqual([.7, 0]);
+    expect(network.segments.some(s => s.a[0] === .7 && s.b[0] === 2.5)).toBe(true);
+  });
+
+  it("旧口径对照：延长段也按最小墙长拦截时，这一对被最小墙长回退（诊断可复现）", () => {
+    // policies 只给诊断复核用：还原 Issue #24 之前的判定，确认"被最小墙长拦下"的形态确实存在。
+    const legacy = buildWallNetwork([seg([0, 0], [.2, 0]), seg([.7, 0], [2.5, 0])], { pieceLengthAppliesToExtension: true });
+    expect(legacy.join.revertedExtensions).toBeGreaterThan(0);
+    // 生产口径返回自己实际使用的参数，诊断脚本据此归类。
+    const current = buildWallNetwork([seg([0, 0], [.2, 0]), seg([.7, 0], [2.5, 0])]);
+    expect(current.policies).toMatchObject({ extensionMinM: EXTENSION_MIN_M, pieceLengthAppliesToExtension: false });
+  });
+
+  it("独立拟合短段（<0.8 m、无连接对象）仍被过滤：噪声短段不因延长口径放宽进入墙网", () => {
+    // 拟合端的最小墙长（wallLines.ts 的 0.8 m）与最小支撑格数未改；这里给出墙网层的等价保证：
+    // 一个孤立的 0.3 m 短段不会被延长成墙——没有可接的墙段时它保持原长并列为未闭合悬空端。
+    const network = buildWallNetwork([seg([0, 0], [.3, 0])]);
+    expect(network.segments).toHaveLength(1);
+    expect(network.segments[0]!.b).toEqual([.3, 0]);
+    expect(network.join.extensions).toBe(0);
+    expect(network.unclosed.every(u => u.reason === "structural-gap")).toBe(true);
+    // 与另一段平行但不在同一墙轴上的近邻墙也不会被短延长连上（0.3 m 轴间距 > 贴合容差）。
+    const parallel = buildWallNetwork([seg([0, 0], [.3, 0]), seg([0, .3], [6, .3])]);
+    expect(parallel.join.extensions).toBe(0);
+    expect(parallel.join.dangling).toBe(4);
+  });
+
+  it("1.2 m 门口不得被短延长误连：洞口判据先于延长，短延长口径不缩短门口", () => {
+    // 同一面墙、同一墙轴上的 1.2 m 缺墙按门口处理：不补墙、不延长，两侧墙原样保留。
+    const door = buildWallNetwork([seg([0, 0], [2, 0]), seg([3.2, 0], [8, 0])]);
+    expect(door.join.extensions).toBe(0);
+    expect(door.unclosed.filter(u => u.reason === "opening" && u.gapM === 1.2)).toHaveLength(2);
+    // 洞口两侧的墙原样保留，没有被任何一条延长规则缩短或接上。
+    expect(door.segments).toHaveLength(2);
+    expect(door.segments[0]!.a).toEqual([0, 0]);
+    expect(door.segments[0]!.b).toEqual([2, 0]);
+    expect(door.segments[1]!.a).toEqual([3.2, 0]);
+    expect(door.segments[1]!.b[0]).toBeCloseTo(8, 6);
   });
 
   it("平行近邻墙不被合并，开放端原因逐条给出位置", () => {

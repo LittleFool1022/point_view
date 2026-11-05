@@ -9,7 +9,9 @@
  * - 延长：缺口 ≤ MAX_EXTENSION_M 且只沿某一方的墙轴延长线（另一端点在对方轴线延长线上 ≤ TIE_TOLERANCE_M）
  *   才把被延长的一方延伸到对方端点上；延长段与原段同轴，不产生斜线。
  * - 洞口：缺口 ≥ OPENING_M 一律视为洞口/门口，绝不补墙；MAX_EXTENSION_M–OPENING_M 之间不连接并列入未闭合清单。
- * - 延伸后不足 MIN_PIECE_M 的延伸回退为悬空端，并计入清单"延伸不足"。
+ * - 最小墙长 MIN_PIECE_M（= 拟合器保留下限 0.8 m）只约束**墙段自身**：角部收敛后任一段是否还成墙、
+ *   以及"把短段拉长去够缺口"的反向延长是否回退。连接两段已确认墙体的延长段不受它拦截；
+ *   延长段自己的下限是 EXTENSION_MIN_M（= 贴合容差 0.12 m 的独立性下限），只挡住"没量出来却凭空长出一段墙"。
  * 每段墙记录"原墙候选段号 / 第几子段 / 子段总数 / 本次连接位移"，节点与边可追溯到原墙段。
  */
 
@@ -21,7 +23,10 @@ export interface WallPiece {
   sources?: number[];
 }
 export interface WallNode { id: number; p: P; degree: number; walls: number[] }
-/** 未连接项：位置 + 原因，供诊断脚本与告警逐条输出。 */
+/**
+ * 未连接项的原因。`extension-too-short` 自 Issue #24（修复 f）起不再产生——连接延长段不再套用最小墙长；
+ * 成员保留是为了旧工程读档时已有记录仍有类型。
+ */
 export type UnclosedReason = "opening" | "gap-too-large" | "no-alignment" | "extension-too-short" | "corner-too-far" | "corner-no-evidence" | "structural-gap";
 export interface UnclosedEnd {
   segmentIndex: number; end: "a" | "b"; pointM: P; reason: UnclosedReason;
@@ -46,7 +51,7 @@ export interface JoinCounts {
   insertedNodes: number;
   /** 墙段被插入节点切分的次数。 */
   splits: number;
-  /** 延伸段不足最小墙长而回退的次数。 */
+  /** 延伸不足（把不足最小墙长的短段拉长去够缺口）而回退的次数；生产口径下为 0，诊断旧口径对照时非 0。 */
   revertedExtensions: number;
   /** 收敛到墙角的次数（角部连接）。 */
   corners: number;
@@ -64,6 +69,17 @@ export interface WallNetwork {
   corners: CornerJoin[];
   /** 回退与其它可复核提示。 */
   notes: string[];
+  /** 本次判定实际使用的延长口径（诊断复核用；生产运行为常量默认值）。 */
+  policies: ExtensionPolicies | null;
+}
+/** 延长口径：生产中一律用常量默认值，诊断脚本可临时换成旧口径做对照。 */
+export interface ExtensionPolicies {
+  /** 延长段自身的最小长度（默认 EXTENSION_MIN_M）。 */
+  extensionMinM?: number;
+  /** true = 延长段也按最小墙长 MIN_PIECE_M 处理（Issue #24 之前的旧口径，仅诊断对照用）。 */
+  pieceLengthAppliesToExtension?: boolean;
+  /** 诊断对照用：按旧口径整轮跑（延长段先受最小墙长拦截，并写入 `extension-too-short`）。 */
+  legacyExtensionLengthGate?: boolean;
 }
 
 /** 贴合横向容差：拟合 RMS 上限 4.5 cm 的 2.5 倍，覆盖端点抖动又不吸收平行墙。 */
@@ -74,8 +90,20 @@ export const VERTEX_MERGE_M = .02;
 export const MAX_EXTENSION_M = .5;
 /** 视为洞口/门口、一律不连接的最小缺口（Issue 参数）。 */
 export const OPENING_M = 1;
-/** 延伸段最小墙长：低于拟合器保留下限即判为"延伸不足以成墙"。 */
+/**
+ * 墙段最小墙长：低于拟合器保留下限（`wallLines.ts` 的 0.8 m）即判为"不足以成墙"。
+ * 只用于**墙段自身**的判据——角部收敛后任一段是否还成墙、以及"把短段拉长去够缺口"的反向延长是否回退；
+ * 不用于拦截连接两段已确认墙体的延长段（见 EXTENSION_MIN_M）。
+ */
 export const MIN_PIECE_M = .8;
+/**
+ * 延长段下限：连接两段已确认墙体时，延长段自身只需不是凭空构造的长度。
+ * 取代原先套用 MIN_PIECE_M 的口径（Issue #24）：最小墙长是拟合端过滤噪声短段的判据，
+ * 套在"两段已确认墙体之间的连接延长段"上会拦掉真实小缺口（PR #22 基线实测 18 条 `extension-too-short`）。
+ * 取贴合/端点对齐容差 TIE_TOLERANCE_M：短于它的增量两端无法区分"已确认墙体"与端点抖动，这种增量不延长，
+ * 也不计为"延伸不足"回退（延伸不足只留给"把短段拉长去够缺口"这一种情形）。
+ */
+export const EXTENSION_MIN_M = TIE_TOLERANCE_M;
 /** 角接对齐上限：缺口超过此值时角接让位于"洞口/未闭合"。 */
 const CORNER_ALIGN_M = .15;
 /** 共线判定：方向正弦差 ≤ 0.2（约 11.5°）。 */
@@ -173,10 +201,28 @@ function intersectionOf(x: Axis, y: Axis): P | undefined {
  * 2. 角接：相距 ≤ VERTEX_MERGE_M 的端部聚成顶点，同一点上汇合≥2 条非共线墙时对齐到同一节点。
  * 3. 延长：缺口 ≤ MAX_EXTENSION_M 且只沿某一方的墙轴延长线时，把该方延伸到对方端点上；
  *    对方端点同时对齐到本方轴线，缺口两侧共点的墙端一并移动，因此结果是一个节点而不是两段斜线。
- *    延伸后不足 MIN_PIECE_M 的回退并记录"延伸不足"。
- * 4. 节点合并 + 未连接清单（洞口 ≥ OPENING_M、0.5–1.0 m 未闭合、不同轴、延伸不足）。
+ *    连接两段已确认墙体的延长段不受 MIN_PIECE_M 拦截（只有 EXTENSION_MIN_M 的独立性下限）；
+ *    把短段拉长去够缺口仍不足 MIN_PIECE_M 时回退并记录"延伸不足"。
+ * 4. 节点合并 + 未连接清单（洞口 ≥ OPENING_M、0.5–1.0 m 未闭合、不同轴）。
+ *
+ * `policies` 只给诊断脚本复核用：返回每一步在判定时实际使用的延长口径，脚本按同一份口径归类。
  */
-export function buildWallNetwork<T extends { a: P; b: P; support: number; rmsM: number }>(input: ReadonlyArray<T>): WallNetwork {
+export function buildWallNetwork<T extends { a: P; b: P; support: number; rmsM: number }>(input: ReadonlyArray<T>, policies: ExtensionPolicies = {}): WallNetwork {
+  const build = policies.legacyExtensionLengthGate ? buildWithLegacyExtensionLength : buildNetwork;
+  return build(input, policies);
+}
+
+/** 旧口径（Issue #24 之前）：延长段自身也按最小墙长 MIN_PIECE_M 拦截。只给诊断脚本对照用。 */
+function buildWithLegacyExtensionLength<T extends { a: P; b: P; support: number; rmsM: number }>(input: ReadonlyArray<T>, policies: ExtensionPolicies): WallNetwork {
+  return buildNetwork(input, { ...policies, pieceLengthAppliesToExtension: true });
+}
+
+function buildNetwork<T extends { a: P; b: P; support: number; rmsM: number }>(input: ReadonlyArray<T>, policies: ExtensionPolicies): WallNetwork {
+  // 诊断复核用参数：生产中始终使用常量默认值，不在 UI 或设置里暴露。
+  const extensionMin = policies.extensionMinM ?? EXTENSION_MIN_M;
+  /** 延长段自身是否受最小墙长约束：诊断复核用的旧口径（Issue #24 之前）为 true，生产运行为 false。 */
+  const lengthApplies = policies.pieceLengthAppliesToExtension ?? false;
+  const reportPolicies = { ...policies, extensionMinM: extensionMin, pieceLengthAppliesToExtension: lengthApplies };
   const segments: WallPiece[] = input.map((s, i) => {
     const piece: WallPiece = { a: pointOn(s.a), b: pointOn(s.b), support: s.support, rmsM: s.rmsM, sourceIndex: i, pieceStart: 0, pieceCount: 1, joinMm: 0 };
     // 输入带去重来源编号（wallDedupe 的 sources）时原样带出，诊断可回溯到拟合原始输出。
@@ -240,7 +286,7 @@ export function buildWallNetwork<T extends { a: P; b: P; support: number; rmsM: 
     const key = `${piece.sourceIndex}:${end}`;
     if (revertedKeys.has(key)) return;
     revertedKeys.add(key);
-    notes.push(`墙段 #${piece.sourceIndex} 的 ${end} 端延伸后不足 ${MIN_PIECE_M} m，已回退为悬空端（延伸不足）。`);
+    notes.push(`墙段 #${piece.sourceIndex} 的 ${end} 端把短段拉长后仍不足 ${MIN_PIECE_M} m，已回退为悬空端（延伸不足）。`);
   };
 
   // 1) 贴合：端点落在另一墙段内部（横向 ≤ TIE_TOLERANCE_M）→ 投到该墙轴并在该墙插节点。
@@ -335,11 +381,15 @@ export function buildWallNetwork<T extends { a: P; b: P; support: number; rmsM: 
     }
     const axis = axisOf(own), p = extendAlong(axis, end, target);
     if (!p) return undefined;
-    const targetAxis = axisOf(segments[j]!), aligned = endpointAt(p, targetAxis);
+    const aligned = endpointAt(p, axisOf(segments[j]!));
     // 对方端点横向错位须落在贴合容差内；超出说明不是同一墙轴。
     if (distance(aligned, p) > SNAP_TOLERANCE_M || insideWall(p, [i, j]) || distance(p, source) > MAX_EXTENSION_M) return undefined;
-    const next = setEndpoint(own, end, p);
-    if (distance(next.a, next.b) < MIN_PIECE_M) return "reverted";
+    // 延长段口径（Issue #24）：连接两段已确认墙体的延长段不受最小墙长 MIN_PIECE_M 拦截，只要求延长段本身
+    // 不短于 EXTENSION_MIN_M（短于贴合容差的增量两端无法区分"已确认墙体"与端点抖动）。
+    // 旧口径（legacyExtensionLengthGate，仅诊断对照）在此额外要求延长后的整段仍 ≥ MIN_PIECE_M。
+    const extended = setEndpoint(own, end, p), extendedShort = distance(extended.a, extended.b) < MIN_PIECE_M;
+    if (extendedShort && !lengthApplies && distance(p, source) < extensionMin) return undefined;
+    if (extendedShort && lengthApplies) return "reverted";
     commit(p, aligned, i, end, j, other);
     return "extended";
   }
@@ -538,7 +588,12 @@ export function buildWallNetwork<T extends { a: P; b: P; support: number; rmsM: 
             : `缺口 ${gap.toFixed(2)} m 在延长上限内，但两段不在同一墙轴延长线上，不补斜线。` });
         continue;
       }
-      unclosed.push({ segmentIndex: i, end, pointM: p, reason: "extension-too-short", targetSegmentIndex: best.j, gapM, note: `缺口 ${gap.toFixed(2)} m 在延长上限内，但延伸后不足最小墙长 ${MIN_PIECE_M} m，保留为悬空端。` });
+      // 到这里只剩"缺口在延长上限内、两段同轴、但延长没有成立"。生产口径下（延长段不受最小墙长拦截）
+      // 只可能是"延长段短于 EXTENSION_MIN_M"或"端头已被别的墙接住"，都不是"延长段不足最小墙长"，
+      // 因此按同一清单的既有原因记 `no-alignment`；旧口径对照时仍按最小墙长口径写 `extension-too-short`。
+      unclosed.push(lengthApplies
+        ? { segmentIndex: i, end, pointM: p, reason: "extension-too-short", targetSegmentIndex: best.j, gapM, note: `缺口 ${gap.toFixed(2)} m 在延长上限内，但延伸后不足最小墙长 ${MIN_PIECE_M} m，保留为悬空端。` }
+        : { segmentIndex: i, end, pointM: p, reason: "no-alignment", targetSegmentIndex: best.j, gapM, note: `缺口 ${gap.toFixed(2)} m 在延长上限内、两段同轴，但延长未成立（延长段须不短于 ${EXTENSION_MIN_M} m，端头未被其它墙接住）：保持断开，计入未闭合问题。` });
     }
   });
   if (splits) notes.push(`${insertedNodes} 次在既有墙上插入节点，墙段由 ${input.length} 条切分为 ${segments.length} 条，节点与边保留原墙候选段号。`);
@@ -550,5 +605,5 @@ export function buildWallNetwork<T extends { a: P; b: P; support: number; rmsM: 
   };
   const openCorners = stillOpen.filter(c => c.outcome === "skipped").length;
   if (stillOpen.length) notes.push(`角部断点 ${stillOpen.length} 处：${stillOpen.length - openCorners} 处收敛到延长线交点，${openCorners} 处保持断开（原因见角部清单）。`);
-  return { segments, nodes, edges: segments.length, join, unclosed, corners: stillOpen, notes };
+  return { segments, nodes, edges: segments.length, join, unclosed, corners: stillOpen, notes, policies: reportPolicies };
 }
