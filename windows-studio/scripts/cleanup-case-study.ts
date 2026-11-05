@@ -6,17 +6,19 @@
  *   SURVEY_REAL_FIXTURE=<原件.pcd> SURVEY_WORKSPACE=<输出目录> \
  *   SURVEY_REGIONS='[{"id":"A0","label":"...","x":[33,45],"y":[-3,2.5],"z":[-10,20],"basis":"..."}]' \
  *   npm run cleanup:case-study
- * 可选环境变量：ELEVATION_M / HEIGHT_M / THICKNESS_M（默认 0 / 3 / 0.2）、SURVEY_SEED（默认 [12.5,-2.5]）。
+ * 可选环境变量：ELEVATION_M / HEIGHT_M / THICKNESS_M（默认 0 / 3 / 0.2）、SURVEY_SEED（默认 [12.5,-2.5]）、
+ *   SURVEY_ARTIFACT_BOXES（如 [{"id":"#6","box":[-5.1,-2.4,-3.1,-1.5]}]，核对指定伪影段在清理前后是否仍在）。
  * 只读源件；输出写入 SURVEY_WORKSPACE（默认 artifacts/cleanup-case-study/<样本名>）。
  * 未验证范围：Windows/Electron 实机保存重开、界面交互；本脚本不改动任何源点云或工程文件。
  */
 import { createHash } from "node:crypto";
 import { mkdir, open, writeFile } from "node:fs/promises";
 import { basename } from "node:path";
+import { PNG } from "pngjs";
 import { readCloud } from "../src/pipeline/binaryPcd";
 import { fitWallLines, type WallSegment } from "../src/pipeline/wallLines";
 import { ClipState, type RegionClipRule } from "../src/domain/cleaning";
-import { buildingFromSegments, roomsFromWalls } from "../src/domain/buildingOps";
+import { buildingFromSegments, levelClosure, roomsFromWalls } from "../src/domain/buildingOps";
 import type { PointCloudData } from "../../src/domain/types";
 import type { SurveySource } from "../src/domain/project";
 
@@ -73,7 +75,15 @@ const envelopeSeconds = (performance.now() - envelopeStart) / 1000;
 const inBox = (x: number, y: number) => x >= buildingBox.min[0] && x <= buildingBox.max[0] && y >= buildingBox.min[1] && y <= buildingBox.max[1];
 const countInBox = (c: PointCloudData) => { let n = 0; for (let i = 0; i < c.visible.length; i++) if (c.visible[i] && inBox(c.positions[i * 3]!, c.positions[i * 3 + 1]!)) n++; return n; };
 
-// ---- 3. 墙候选链路（与 analysis.worker.ts 的 building 分支同一顺序：高度剖切 → fitWallLines → buildingFromSegments → roomsFromWalls）----
+// ---- 3. 选定区域：坐标、Z 范围与入选理由全部来自命令行，并随 JSON 落盘，他人可逐项重做 ----
+// 清理只用工程现有 RegionClipRule（俯视正交投影矩形，穿透视线全部深度），与 CloudView 的框选同一实现。
+const regions = JSON.parse(process.env.SURVEY_REGIONS ?? "[]") as Array<{ id: string; label: string; x: P; y: P; z: P; basis: string }>;
+if (!regions.length) throw Error("Set SURVEY_REGIONS to the selected region list (JSON).");
+const box = buildingBox, w = box.max[0] - box.min[0], h = box.max[1] - box.min[1], cx = (box.min[0] + box.max[0]) / 2, cy = (box.min[1] + box.max[1]) / 2;
+// 与 CloudView 俯视一致的 NDC 映射（正交俯视，覆盖整个建筑范围）。
+const ruleFor = (region: { x: P; y: P }): RegionClipRule => { const r = [(region.x[0] - cx) * 2 / w, (region.y[0] - cy) * 2 / h, (region.x[1] - cx) * 2 / w, (region.y[1] - cy) * 2 / h].map(v => Math.max(-1, Math.min(1, v))) as [number, number, number, number]; return { matrix: [2 / w, 0, 0, 0, 0, 2 / h, 0, 0, 0, 0, 1, 0, -2 * cx / w, -2 * cy / h, 0, 1], rect: r, mode: "remove" }; };
+
+// ---- 4. 墙候选链路（与 analysis.worker.ts 的 building 分支同一顺序：高度剖切 → fitWallLines → buildingFromSegments → roomsFromWalls）----
 const source = { name, units: "m", synthetic: false, native: { token: "cleanup", name, size: stat.size, sha256: sha256Before } } as SurveySource;
 const options = { elevationM, heightM, thicknessM, levelName: "清理案例" };
 async function runChain(visible: Uint8Array) {
@@ -85,18 +95,12 @@ async function runChain(visible: Uint8Array) {
   const fitSeconds = (performance.now() - started) / 1000;
   const building = buildingFromSegments(source, options, fitted.segments);
   const rooms = roomsFromWalls(building, building.levels[0]!.id, heightM);
-  return { working, fitted, band, fitSeconds, segments: fitted.segments, rooms: rooms.length, evidenceCells: fitted.evidenceCells };
+  const report = levelClosure(building, building.levels[0]!.id);
+  return { working, fitted, band, fitSeconds, segments: fitted.segments, rooms: rooms.length, unclosedIssues: building.unclosedIssues?.length ?? 0, closure: report, evidenceCells: fitted.evidenceCells, fittedSegments: fitted.fittedSegments ?? fitted.segments.length, dedupedSegments: fitted.dedupedSegments ?? fitted.segments.length };
 }
 const baseline = await runChain(Uint8Array.from(cloud.visible));
 
-// ---- 4. 选定区域与清理：只用工程现有 RegionClipRule（投影矩形，穿透视线全部深度）----
-// 区域参数（坐标米、Z 范围米）由脚本内常量给出，JSON 一并落盘，他人可逐项重做。
-const regions = JSON.parse(process.env.SURVEY_REGIONS ?? "[]") as Array<{ id: string; label: string; x: P; y: P; z: P; basis: string }>;
-if (!regions.length) throw Error("Set SURVEY_REGIONS to the selected region list (JSON).");
-const box = buildingBox, w = box.max[0] - box.min[0], h = box.max[1] - box.min[1], cx = (box.min[0] + box.max[0]) / 2, cy = (box.min[1] + box.max[1]) / 2;
-// 与 CloudView 俯视一致的 NDC 映射（正交俯视，覆盖整个建筑范围）：像素/NDC 由相机与视口按线性关系给出。
-const ruleFor = (region: { x: P; y: P }): RegionClipRule => { const r = [(region.x[0] - cx) * 2 / w, (region.y[0] - cy) * 2 / h, (region.x[1] - cx) * 2 / w, (region.y[1] - cy) * 2 / h].map(v => Math.max(-1, Math.min(1, v))) as [number, number, number, number]; return { matrix: [2 / w, 0, 0, 0, 0, 2 / h, 0, 0, 0, 0, 1, 0, -2 * cx / w, -2 * cy / h, 0, 1], rect: r, mode: "remove" }; };
-
+// ---- 5. 清理：只用工程现有框选剔除 ----
 const regionStats = regions.map(region => {
   let points = 0, inBand = 0;
   for (let i = 0; i < cloud.visible.length; i++) {
@@ -120,7 +124,67 @@ for (const region of regionStats) {
 }
 const after = await runChain(cleaned);
 
-// ---- 5. 墙段逐段对照 ----
+// ---- 6. 证据图（与本文档的 pr-evidence 图同源）：2 cm 俯视对照 + 区域放大 + 立面投影 ----
+// 用 pngjs 直接写 PNG，避免额外图像库；图幅常量固定，便于前后对照。
+const FIGURE = { cell: .02, scale: 3, X0: -5.15, X1: 46.5, Y0: -12.35, Y1: 8.65, zoomCell: .02, zoomScale: 3, sectionZ: [-6, 6] as [number, number] };
+function topView(cloudRef: PointCloudData, keep: (i: number) => boolean, x0 = FIGURE.X0, x1 = FIGURE.X1, y0 = FIGURE.Y0, y1 = FIGURE.Y1, scale = FIGURE.scale) {
+  const w = Math.round((x1 - x0) / FIGURE.cell), h = Math.round((y1 - y0) / FIGURE.cell), dens = new Float32Array(w * h), cols = new Float32Array(w * h * 3);
+  for (let i = 0; i < cloudRef.visible.length; i++) {
+    if (!keep(i)) continue;
+    const x = cloudRef.positions[i * 3]!, y = cloudRef.positions[i * 3 + 1]!, z = cloudRef.positions[i * 3 + 2]!;
+    if (x < x0 || x > x1 || y < y0 || y > y1 || z < elevationM || z > elevationM + heightM) continue;
+    const k = Math.floor((y - y0) / FIGURE.cell) * w + Math.floor((x - x0) / FIGURE.cell);
+    dens[k]!++; cols[k * 3] += cloudRef.colors[i * 3]!; cols[k * 3 + 1] += cloudRef.colors[i * 3 + 1]!; cols[k * 3 + 2] += cloudRef.colors[i * 3 + 2]!;
+  }
+  const img = new PNG({ width: w * scale, height: h * scale });
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const k = y * w + x, d = dens[k]!;
+    const lum = d ? Math.min(1, Math.log1p(d) / Math.log1p(60)) * .85 + .15 : 0;
+    const r = d ? Math.min(255, cols[k * 3]! / d * lum + 20) : 10, g = d ? Math.min(255, cols[k * 3 + 1]! / d * lum + 24) : 14, b = d ? Math.min(255, cols[k * 3 + 2]! / d * lum + 20) : 18;
+    for (let sy = 0; sy < scale; sy++) for (let sx = 0; sx < scale; sx++) { const idx = (((h - 1 - y) * scale + sy) * w * scale + x * scale + sx) * 4; img.data[idx] = r; img.data[idx + 1] = g; img.data[idx + 2] = b; img.data[idx + 3] = 255; }
+  }
+  return { img, w, h, scale, x0, y0, y1, cell: FIGURE.cell };
+}
+const put = (img: PNG, x: number, y: number, c: [number, number, number]) => { for (const [dx, dy] of [[0, 0], [1, 0], [0, 1]]) { const ix = x + dx, iy = y + dy; if (ix < 0 || iy < 0 || ix >= img.width || iy >= img.height) continue; const idx = (iy * img.width + ix) * 4; img.data[idx] = c[0]; img.data[idx + 1] = c[1]; img.data[idx + 2] = c[2]; img.data[idx + 3] = 255; } };
+const line = (img: PNG, v: ReturnType<typeof topView>, a: P, b: P, c: [number, number, number]) => {
+  const sx = (p: P) => Math.round((p[0] - v.x0) / v.cell) * v.scale, sy = (p: P) => Math.round((v.y1 - p[1]) / v.cell) * v.scale;
+  const x0 = sx(a), y0 = sy(a), x1 = sx(b), y1 = sy(b), steps = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0)));
+  for (let i = 0; i <= steps; i++) put(img, Math.round(x0 + (x1 - x0) * i / steps), Math.round(y0 + (y1 - y0) * i / steps), c);
+};
+const rect = (img: PNG, v: ReturnType<typeof topView>, x0: number, y0: number, x1: number, y1: number, c: [number, number, number]) => {
+  line(img, v, [x0, y0], [x1, y0], c); line(img, v, [x1, y0], [x1, y1], c); line(img, v, [x1, y1], [x0, y1], c); line(img, v, [x0, y1], [x0, y0], c);
+};
+const crop = (v: ReturnType<typeof topView>, box: [number, number, number, number]) => {
+  const [bx0, by0, bx1, by1] = box, X0 = Math.floor((bx0 - v.x0) / v.cell) * v.scale, X1 = Math.ceil((bx1 - v.x0) / v.cell) * v.scale, Y0 = Math.floor((v.y1 - by1) / v.cell) * v.scale, Y1 = Math.ceil((v.y1 - by0) / v.cell) * v.scale;
+  const w = Math.max(1, Math.min(v.img.width, X1) - Math.max(0, X0)), h = Math.max(1, Math.min(v.img.height, Y1) - Math.max(0, Y0)), out = new PNG({ width: w, height: h });
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const s = ((Math.max(0, Y0) + y) * v.img.width + Math.max(0, X0) + x) * 4, d = (y * w + x) * 4; for (let c = 0; c < 4; c++) out.data[d + c] = v.img.data[s + c]!; }
+  return out;
+};
+const sideBySide = (left: PNG, right: PNG) => {
+  const gap = 20, img = new PNG({ width: left.width + gap + right.width, height: Math.max(left.height, right.height) });
+  for (let i = 3; i < img.data.length; i += 4) img.data[i] = 255;
+  for (const [src, offset] of [[left, 0], [right, left.width + gap]] as Array<[PNG, number]>) for (let y = 0; y < src.height; y++) for (let x = 0; x < src.width; x++) { const s = (y * src.width + x) * 4, d = (y * img.width + offset + x) * 4; for (let c = 0; c < 4; c++) img.data[d + c] = src.data[s + c]!; }
+  return img;
+};
+const eastern = regions.reduce((m, r) => Math.max(m, r.x[1]), -Infinity), figureBox: [number, number, number, number] = [Math.min(...regions.map(r => r.x[0])), Math.min(...regions.map(r => r.y[0])), eastern, Math.max(...regions.map(r => r.y[1]))];
+const viewBefore = topView(cloud, i => !!cloud.visible[i]), remaining = topView(cloud, i => !!cleaned[i]);
+for (const [v, segs] of [[viewBefore, baseline.segments], [remaining, after.segments]] as Array<[ReturnType<typeof topView>, typeof baseline.segments]>) {
+  rect(v.img, v, buildingBox.min[0], buildingBox.min[1], buildingBox.max[0], buildingBox.max[1], [90, 200, 140]);
+  rect(v.img, v, figureBox[0], figureBox[1], figureBox[2], figureBox[3], [255, 190, 60]);
+  for (const s of segs) line(v.img, v, s.a, s.b, [240, 250, 245]);
+}
+await mkdir(`${out}/figures`, { recursive: true });
+await writeFile(`${out}/figures/before.png`, PNG.sync.write(viewBefore.img));
+await writeFile(`${out}/figures/after.png`, PNG.sync.write(remaining.img));
+await writeFile(`${out}/figures/before-after.png`, PNG.sync.write(sideBySide(viewBefore.img, remaining.img)));
+await writeFile(`${out}/figures/region-before.png`, PNG.sync.write(crop(viewBefore, figureBox)));
+await writeFile(`${out}/figures/region-after.png`, PNG.sync.write(crop(remaining, figureBox)));
+// 图例：左 = 清理前，右 = 清理后；同一范围、同一配色、同一墙候选绘制方式。
+
+
+
+
+// ---- 7. 墙段逐段对照 ----
 // 逐段对照的第一层：给出每段的墙轴方向与中轴平行距离；判定“同一墙段”见下方 sameWall。
 const axisDistance = (s: WallSegment, other: WallSegment) => {
   const length = distance(s.a, s.b), oLen = distance(other.a, other.b);
@@ -181,7 +245,14 @@ const eastSupport = (working: PointCloudData, segments: WallSegment[]) => segmen
   }
   return { a: s.a.map(round) as P, b: s.b.map(round) as P, lengthM: round(distance(s.a, s.b)), support: s.support, pointsEastOfRegionM: points };
 });
-// ---- 6. 墙厚带内点数（伪影判定口径与 PR #8 诊断一致：墙厚带内点数、0.45 m 带宽内点数）----
+// 伪影段核对（#8 诊断的缺陷段）：给出清理前后中心落在指定方框内的候选，用于判断清理是否影响该段。
+const artifacts: Array<{ id: string; box: [number, number, number, number]; before: Array<{ a: P; b: P; lengthM: number }>; after: Array<{ a: P; b: P; lengthM: number }> }> = [];
+const artifactBoxes = JSON.parse(process.env.SURVEY_ARTIFACT_BOXES ?? "[]") as Array<{ id: string; box: [number, number, number, number] }>;
+for (const { id, box: b } of artifactBoxes) {
+  const inside = (segs: WallSegment[]) => segs.filter(s => (s.a[0] + s.b[0]) / 2 >= b[0] && (s.a[0] + s.b[0]) / 2 <= b[2] && (s.a[1] + s.b[1]) / 2 >= b[1] && (s.a[1] + s.b[1]) / 2 <= b[3]).map(s => ({ a: s.a.map(round) as P, b: s.b.map(round) as P, lengthM: round(distance(s.a, s.b)) }));
+  artifacts.push({ id, box: b, before: inside(baseline.segments), after: inside(after.segments) });
+}
+// ---- 8. 墙厚带内点数（伪影判定口径与 PR #8 诊断一致：墙厚带内点数、0.45 m 带宽内点数）----
 const bandMetrics = (working: PointCloudData, segments: WallSegment[]) => segments.map(s => {
   const dx = s.b[0] - s.a[0], dy = s.b[1] - s.a[1], length = Math.hypot(dx, dy), half = thicknessM / 2;
   let inside = 0, near = 0;
@@ -196,7 +267,7 @@ const bandMetrics = (working: PointCloudData, segments: WallSegment[]) => segmen
 });
 const beforeMetrics = bandMetrics(baseline.working, baseline.segments), afterMetrics = bandMetrics(after.working, after.segments);
 
-// ---- 7. 源件完整性复核 ----
+// ---- 9. 源件完整性复核 ----
 const handle2 = await open(file, "r"), hash2 = createHash("sha256");
 for (let offset = 0; offset < stat.size; offset += 64 * 1024 ** 2) { const size = Math.min(64 * 1024 ** 2, stat.size - offset), buffer = Buffer.alloc(size); await handle2.read(buffer, 0, size, offset); hash2.update(buffer); }
 const sha256After = hash2.digest("hex"); await handle2.close();
@@ -211,8 +282,8 @@ const report = {
   timings: { decodeSeconds: round(decodeSeconds), envelopeSeconds: round(envelopeSeconds), baselineFitSeconds: round(baseline.fitSeconds), afterFitSeconds: round(after.fitSeconds) },
   regions: regionStats,
   removalLog,
-  baseline: { pointsInBuildingEnvelopeAndBand: baseline.band, evidenceCells: baseline.evidenceCells, wallCandidates: baseline.segments.length, rooms: baseline.rooms },
-  after: { pointsInBuildingEnvelopeAndBand: after.band, evidenceCells: after.evidenceCells, wallCandidates: after.segments.length, rooms: after.rooms },
+  baseline: { pointsInBuildingEnvelopeAndBand: baseline.band, evidenceCells: baseline.evidenceCells, fittedSegments: baseline.fittedSegments, wallCandidates: baseline.segments.length, rooms: baseline.rooms, unclosedIssues: baseline.unclosedIssues, closure: baseline.closure },
+  after: { pointsInBuildingEnvelopeAndBand: after.band, evidenceCells: after.evidenceCells, fittedSegments: after.fittedSegments, wallCandidates: after.segments.length, rooms: after.rooms, unclosedIssues: after.unclosedIssues, closure: after.closure },
   removedPoints: removed,
   regionPointsInRegister: regionStats.map((r, i) => ({ id: r.id, points: r.points, inHeightBandPoints: r.inHeightBandPoints, removedByRule: removalLog[i]!.removed })),
   retainedAfterCleanup: cleaned.reduce((sum, v) => sum + v, 0),
@@ -220,9 +291,11 @@ const report = {
   added: addedDetail,
   lostSegments: lostDetail,
   eastSupport: { before: eastSupport(baseline.working, baseline.segments), after: eastSupport(after.working, after.segments) },
+  artifacts,
   metrics: { before: beforeMetrics, after: afterMetrics, thicknessPairs: mutual.map(m => ({ beforeIndex: m.beforeIndex, afterIndex: m.afterIndex, pointsInThicknessBefore: beforeMetrics[m.beforeIndex]!.pointsInThickness, pointsInThicknessAfter: afterMetrics[m.afterIndex]!.pointsInThickness })) },
 };
 await writeFile(`${out}/cleanup-case-study.json`, JSON.stringify(report, null, 2));
 await writeFile(`${out}/segments-before.json`, JSON.stringify(baseline.segments));
 await writeFile(`${out}/segments-after.json`, JSON.stringify(after.segments));
+await writeFile(`${out}/figures/manifest.json`, JSON.stringify({ figures: ["before.png", "after.png", "before-after.png", "region-before.png", "region-after.png"], regionFigure: figureBox, buildingEnvelope: report.buildingEnvelope, legend: "left = before cleanup, right = after cleanup; green = building envelope, orange = cleaned region, white = wall candidates" }, null, 2));
 console.log(JSON.stringify({ source: report.source, buildingEnvelope: report.buildingEnvelope, regions: report.regions, removalLog, baseline: report.baseline, after: report.after, lostSegments: report.lostSegments.length, timings: report.timings }, null, 2));
