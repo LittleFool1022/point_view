@@ -13,7 +13,7 @@ import { basename } from "node:path";
 import { readCloud } from "../src/pipeline/binaryPcd";
 import { fitWallLines } from "../src/pipeline/wallLines";
 import { DEDUPE_AXIS_GAP_M, DEDUPE_DIRECTION_DEG, DEDUPE_PROJECTION_GAP_M, mergeWallSegments } from "../src/pipeline/wallDedupe";
-import { buildWallNetwork } from "../src/pipeline/wallNetwork";
+import { EXTENSION_MIN_M, MAX_EXTENSION_M, MIN_PIECE_M, OPENING_M, TIE_TOLERANCE_M, VERTEX_MERGE_M, buildWallNetwork } from "../src/pipeline/wallNetwork";
 import { buildingFromSegments, levelClosure, roomsFromWalls } from "../src/domain/buildingOps";
 import { traceWallLines } from "./replay-wall-lines";
 import type { PointCloudData } from "../../src/domain/types";
@@ -177,6 +177,104 @@ function beforeTopology(list: ReadonlyArray<{ a: P; b: P }>) {
   for (let e = 0; e < pairs.length; e++) { if (seen.has(e)) continue; components++; const q = [e]; while (q.length) { const k = q.pop()!; if (seen.has(k)) continue; seen.add(k); for (const n of pairs[k]!) for (const o of adj[n]!) if (!seen.has(o)) q.push(o); } }
   return { edges: pairs.length, wallNodes: pts.length, degreeHistogram: deg.reduce((acc: Record<string, number>, d) => ({ ...acc, [d]: (acc[d] ?? 0) + 1 }), {}), openEndpoints: deg.filter(d => d === 1).length, connectedComponents: components };
 }
+// ---- 延长口径复核（Issue #24 / 修复 f）--------------------------------------------------------
+// 同一份去重墙候选分别按"旧口径（延长段也按最小墙长 0.8 m 拦截）"与"新口径（延长段只受 EXTENSION_MIN_M）"
+// 各跑一次墙网连接，逐对给出中断原因：新口径下仍断开的悬空端，按判定顺序指出它被哪一条判据挡住。
+const baselinePolicies = { legacyExtensionLengthGate: true } as const;
+// 旧口径复跑：先按旧代码的判定（延长前后都套 MIN_PIECE_M）跑一遍，得到旧口径会写入 `extension-too-short` 的那批悬空端；
+// 再把同一份去重输入交给新口径，按（段号, 端）逐对比对"已接上 / 仍未接上"。两次连接作用于同一输入，段号一一对应。
+const legacyNetwork = buildWallNetwork(before.segments, baselinePolicies);
+const basis = (s: { a: P; b: P }) => {
+  const dx = s.b[0] - s.a[0], dy = s.b[1] - s.a[1], length = Math.hypot(dx, dy);
+  return { a: s.a, ux: dx / length, uy: dy / length, length };
+};
+const projectOn = (axis: ReturnType<typeof basis>, p: P) => { const vx = p[0] - axis.a[0], vy = p[1] - axis.a[1]; return { t: (vx * axis.ux + vy * axis.uy) / axis.length, offset: axis.ux * vy - axis.uy * vx }; };
+/**
+ * 新口径下仍未连通的悬空端：在附近的墙端里找出"沿墙轴量出来的缺口最短"的那个，按 `buildWallNetwork` 的判定顺序
+ * 说明它为什么没有接上（缺口上限 → 同轴 → 沿轴方向 → 段内 → 延长段下限，另加"中间夹着别的墙""端头已被接住"）。
+ *
+ * 量取口径与 `extendAlong` / `dirA` 一致：把对方端点按轴向（沿墙轴，允许 180° 翻转——墙端只分两端）
+ * 映射到本方坐标后取的水平距离。这正是现有延长规则实际走的量，与它不同口径的数字（例如两端点直线距离）
+ * 会给出误导性的"缺口只有几厘米"。
+ */
+function blockage(index: number, end: "a" | "b", network: ReturnType<typeof buildWallNetwork>) {
+  const own = network.segments[index]!, source = end === "a" ? own.a : own.b, sign = end === "b" ? 1 : -1;
+  const ownAxis = basis(own), ownEnd = projectOn(ownAxis, source), ownOff = Math.round(Math.abs(ownEnd.offset) * 1000) / 1000;
+  const ends = network.segments.flatMap((k, kk) => (["a", "b"] as const).map(ee => ({ kk, p: ee === "a" ? k.a : k.b })));
+  const found: Array<Record<string, unknown>> = [];
+  network.segments.forEach((far, j) => {
+    if (j === index) return;
+    const farAxis = basis(far);
+    for (const other of ["a", "b"] as const) {
+      const target = other === "a" ? far.a : far.b, gap = distance(source, target);
+      // 轴向缺口：沿本方墙轴把 target 折到延长方向上量；沿对方墙轴把 source 折过去量，两者取小。
+      const fold = (ax: ReturnType<typeof basis>, from: P, to: P) => {
+        const q = projectOn(ax, to), base = projectOn(ax, from).t * ax.length;
+        return Math.round((Math.abs(q.offset) + Math.abs(q.t * ax.length - base)) * 1000) / 1000;
+      };
+      const holeM = Math.min(fold(ownAxis, source, target), fold(farAxis, target, source));
+      if (holeM > OPENING_M) continue;
+      const measured = projectOn(ownAxis, target), onFar = projectOn(farAxis, source);
+      const alongOwnAxis = Math.abs(measured.offset) <= TIE_TOLERANCE_M, alongFarAxis = Math.abs(onFar.offset) <= TIE_TOLERANCE_M;
+      const pastEnd = sign * (measured.t - (end === "b" ? 1 : 0)) > 0;
+      const occluded = network.segments.some((k, kk) => {
+        if (kk === index || kk === j) return false;
+        const ax = basis(k), q = projectOn(ax, source), t = Math.max(0, Math.min(1, q.t));
+        return distance(source, [k.a[0] + (k.b[0] - k.a[0]) * t, k.a[1] + (k.b[1] - k.a[1]) * t]) + 1e-6 < holeM;
+      });
+      const blockedBy = gap <= VERTEX_MERGE_M ? "merged"
+        : ownOff > TIE_TOLERANCE_M ? "own-end-offset-from-axis"
+        : ends.some(o => o.kk !== index && distance(o.p, source) <= VERTEX_MERGE_M) ? "endpoint-already-jointed"
+        : !alongOwnAxis && !alongFarAxis ? "not-on-one-wall-axis"
+        : !alongOwnAxis ? "lateral-offset-beyond-tolerance"
+        : holeM > MAX_EXTENSION_M ? "gap-beyond-extension-cap"
+        : !pastEnd ? "target-behind-end"
+        : measured.t > 1e-6 && measured.t < 1 - 1e-6 ? "target-on-wall-interior"
+        : holeM < EXTENSION_MIN_M ? "extension-below-tolerance"
+        : occluded ? "another-wall-in-between"
+        : "no-extension-attempted";
+      found.push({ targetSegmentIndex: j, targetEnd: other, gapM: Math.round(gap * 1000) / 1000, holeM, alongOwnAxis, alongFarAxis,
+        lateralOwnerM: Math.round(Math.abs(measured.offset) * 1000) / 1000, lateralTargetM: Math.round(Math.abs(onFar.offset) * 1000) / 1000,
+        ownEndOffsetM: ownOff, occluded, blockedBy });
+    }
+  });
+  found.sort((x, y) => (x.holeM as number) - (y.holeM as number));
+  return { segmentIndex: index, end, pointM: source.map(round) as P, candidates: found.slice(0, 3) };
+}
+const extensionReport = {
+  policies: network.policies,
+  // 旧口径复跑（同一去重输入）：被最小墙长拦下的"延长后不足 0.8 m"条数，与新口径对照。
+  baseline: { extensions: legacyNetwork.join.extensions, revertedExtensions: legacyNetwork.join.revertedExtensions, dangling: legacyNetwork.join.dangling, unclosedByReason: legacyNetwork.unclosed.reduce((acc: Record<string, number>, u) => ({ ...acc, [u.reason]: (acc[u.reason] ?? 0) + 1 }), {}) },
+  current: { extensions: network.join.extensions, revertedExtensions: network.join.revertedExtensions, dangling: network.join.dangling, unclosedByReason: network.unclosed.reduce((acc: Record<string, number>, u) => ({ ...acc, [u.reason]: (acc[u.reason] ?? 0) + 1 }), {}) },
+  // 旧口径复跑：同一份去重输入、同一套构造，只把"延长段也按最小墙长拦截"打开，能复现出基线计数。
+  replay: { dangling: legacyNetwork.join.dangling, join: legacyNetwork.join },
+  // 新口径下仍断开的悬空端（不含洞口）及被挡住的判据；并入既有未闭合清单口径，不另起平行清单。
+  stillBlocked: network.unclosed.filter(u => u.reason !== "opening").map(u => ({ ...blockage(u.segmentIndex, u.end, network), reason: u.reason, corner: u.corner, note: u.note })),
+};
+
+/**
+ * 逐对明细：旧口径复跑里记录的 `extension-too-short` 悬空端，在新口径结果里按坐标（≤0.05 m）对应，
+ * 给出这一对在新口径下的结果；未再出现的记为"已连上"（不依赖两次连接各自的段号，避免切分顺序造成的错配）。
+ */
+const legacyPairs = before.segments.flatMap((seg, i) => (["a", "b"] as const).map(end => ({ seg, i, end, p: end === "a" ? seg.a : seg.b })));
+const legacyShort = legacyNetwork.unclosed.filter(u => u.reason === "extension-too-short").map(u => {
+  const own = legacyPairs.find(e => e.i === u.segmentIndex && e.end === u.end);
+  const far = u.targetSegmentIndex === undefined ? undefined : legacyPairs.find(e => e.i === u.targetSegmentIndex);
+  return { segmentIndex: u.segmentIndex, end: u.end, pointM: u.pointM as P, gapM: u.gapM ?? 0,
+    ownerSources: own?.seg.sources ?? [], targetSources: far?.seg.sources ?? [],
+    ownerLengthM: own ? round(distance(own.seg.a, own.seg.b)) : undefined,
+    targetLengthM: far ? round(distance(far.seg.a, far.seg.b)) : undefined };
+});
+const currentOpen = network.unclosed.filter(u => u.reason !== "opening");
+const pairOutcome = legacyShort.map(pair => {
+  const match = currentOpen.find(u => distance(u.pointM, pair.pointM) <= .05);
+  return { ...pair, outcome: match ? "still-open" : "joined", reason: match?.reason, note: match?.note, currentPointM: match?.pointM.map(round) as P | undefined };
+});
+
+// 并入延长口径复核：逐对明细与计数（同一份去重输入、同一坐标口径）。
+extensionReport.pairs = pairOutcome;
+extensionReport.pairsSummary = pairOutcome.reduce((acc: Record<string, number>, p) => ({ ...acc, [p.outcome]: (acc[p.outcome] ?? 0) + 1 }), {});
+
 const report = {
   source: { name, bytes: stat.size, sha256, pointCount: working.visible.length, elevationM, heightM, thicknessM },
   timings: { decodeSeconds: round(decodeSeconds), fitSeconds: round(fitSeconds) },
@@ -206,6 +304,8 @@ const report = {
     deduped: { ...beforeTopology(before.segments), mergedGroups: fitted.mergeGroups.length },
     // 3) 墙网连接后（修复 b：沿轴延长、T 形插节点、门口不连）。
     joined: { edges: network.edges, wallNodes: network.nodes.length, degreeHistogram: network.nodes.reduce((acc: Record<string, number>, n) => ({ ...acc, [n.degree]: (acc[n.degree] ?? 0) + 1 }), {}), join: network.join, unclosed: network.unclosed },
+    // 延长口径复核（修复 f）：旧口径 vs 新口径，以及新口径下仍断开的悬空端被哪条判据挡住。
+    extensions: extensionReport,
     // 4) 角部断点清单（修复 d）：逐对给出坐标/夹角/交点距离/证据与处理结果，与 unclosed 同一来源、同一清单口径。
     corners: {
       candidates: network.join.cornerCandidates, joined: network.join.corners,
