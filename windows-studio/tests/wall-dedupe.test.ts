@@ -129,3 +129,89 @@ describe("墙候选去重合并（fitWallLines 输出之后）", () => {
     }
   });
 });
+
+/**
+ * 东侧外墙案例（Issue #23 / 零闭合修复 e）的反例：这组几何形态是**相邻墙面首尾错位相接**，
+ * 不是同一墙面的重复拟合，任何一项判据的放宽都会把它们并成一道墙。
+ *
+ * 坐标取自真实样本复跑（`npm run diagnose:east-wall`，原件 SHA256
+ * `6194be9e…669293a`）的去重结果，只保留 x≈30.1–30.6 m 一带那几条竖直线，单位 m：
+ * 三条在 y≈−5.0…−3.5 首尾错位相接（方向 83.74° / 85.84° / 87.08°），
+ * 一条向南延伸到 y≈1.68（87.08°），一条嵌在其内侧（83.74°）。
+ * 方向差来自墙面本身的错位，不是重复拟合的抖动，因此去重必须保持独立。
+ */
+describe("东侧外墙相邻墙面（真实样本形态）：去重不得把它们并成一道", () => {
+  const caseSegments: Array<[P, P]> = [
+    [[30.2409, -5.2681], [30.3335, -3.455]],   // 真实样本去重段 #16（拟合来源 #26）
+    [[30.1328, -5.0174], [30.3039, -3.4574]],  // #27（来源 #40）
+    [[30.0937, -4.9054], [30.1946, -3.5169]],  // #37（来源 #52）
+    [[30.3262, -3.2231], [30.5767, 1.6812]],   // #17（来源 #27/#53）
+    [[30.4229, -2.3718], [30.5596, -1.1256]],  // #28（来源 #41）
+  ];
+  const asSegments = () => caseSegments.map(([a, b]) => segment(a, b));
+
+  it("五条线全部保持独立输出，且互相之间至少违反一项判据", () => {
+    const { segments: merged, groups } = mergeWallSegments(asSegments());
+    expect(merged).toHaveLength(5);
+    expect(groups).toHaveLength(0);
+    expect(merged.every(s => s.merge === null && s.sources.length === 1)).toBe(true);
+    // 逐对复核：任意一对都不能三项同时满足（若满足，说明判据把相邻墙面看成了同一道墙）。
+    for (let i = 0; i < merged.length; i++) for (let j = i + 1; j < merged.length; j++) {
+      const a = merged[i]!, b = merged[j]!, la = length(a), ua: P = [(a.b[0] - a.a[0]) / la, (a.b[1] - a.a[1]) / la];
+      const lb = length(b), ub: P = [(b.b[0] - b.a[0]) / lb, (b.b[1] - b.a[1]) / lb];
+      const delta = Math.abs(Math.atan2(ua[0] * ub[1] - ua[1] * ub[0], ua[0] * ub[0] + ua[1] * ub[1])) * 180 / Math.PI;
+      const angle = delta > 90 ? 180 - delta : delta;
+      const side = [b.a, b.b].map(p => Math.abs((p[0] - a.a[0]) * ua[1] - (p[1] - a.a[1]) * ua[0]));
+      const proj = [b.a, b.b].map(p => (p[0] - a.a[0]) * ua[0] + (p[1] - a.a[1]) * ua[1]);
+      const gap = Math.max(0, Math.max(0, Math.min(...proj)) - Math.min(la, Math.max(...proj)));
+      const passes = angle < DEDUPE_DIRECTION_DEG && Math.max(...side) < DEDUPE_AXIS_GAP_M && gap <= 0.02;
+      expect(passes).toBe(false);
+    }
+  });
+
+  it("放宽单项判据就会合并真实墙面：方向差放到 3.34° 会把首尾错位的两条并成一条", () => {
+    // 这条断言记录的是**放宽的代价**，不是期望行为：说明任何"只差一项"的单点放宽都会误合本案例。
+    const [own, neighbour] = [asSegments()[0]!, asSegments()[1]!];
+    const od: P = [own.b[0] - own.a[0], own.b[1] - own.a[1]], nd: P = [neighbour.b[0] - neighbour.a[0], neighbour.b[1] - neighbour.a[1]];
+    const delta = Math.abs(Math.atan2(od[0] * nd[1] - od[1] * nd[0], od[0] * nd[0] + od[1] * nd[1])) * 180 / Math.PI;
+    expect(delta).toBeGreaterThan(DEDUPE_DIRECTION_DEG);
+    expect(Math.abs(delta - 3.34)).toBeLessThan(.05);
+    // 轴距满足现有判据：只放宽方向差这一项，就足以把这两条相邻墙面并成一条。
+    const ln = Math.hypot(nd[0], nd[1]), un: P = [nd[0] / ln, nd[1] / ln];
+    const side = [own.a, own.b].map(p => Math.abs((p[0] - neighbour.a[0]) * un[1] - (p[1] - neighbour.a[1]) * un[0]));
+    expect(Math.max(...side)).toBeLessThan(DEDUPE_AXIS_GAP_M);
+    // 投影真实重叠 1 m 以上（不是首尾相邻的"只差一点点"）。
+    const proj = [own.a, own.b].map(p => (p[0] - neighbour.a[0]) * un[0] + (p[1] - neighbour.a[1]) * un[1]);
+    expect(Math.min(Math.max(...proj), ln) - Math.max(Math.min(...proj), 0)).toBeGreaterThan(1);
+  });
+
+  /**
+   * 墙网层（PR #15/#22 的连接规则）不在本项范围，这里只锁两条与去重结论直接相关的事实：
+   * 1. 去重后五条线全部进入墙网（`sourceIndex` 一一对应），没有任何一条被去重吞掉；
+   * 2. 每条子段的方向都来自输入线的墙轴（允许贴合/延长带来的端点落轴偏差），不会被改写成横跨两条线的斜撑。
+   * 连接阶段的端点对齐（贴合插入的节点可能留下少于最小墙长的短子段）属修复 f 的清单，本项不改。
+   */
+  it("去重结论进入墙网：五条线全部保留，且每条子段仍沿其来源墙轴", async () => {
+    const { buildWallNetwork } = await import("../src/pipeline/wallNetwork");
+    const deduped = mergeWallSegments(asSegments()).segments;
+    const network = buildWallNetwork(deduped);
+    expect([...new Set(network.segments.map(piece => piece.sourceIndex))].sort((a, b) => a - b)).toEqual(deduped.map((_, i) => i));
+    const directionOf = (s: WallSegment) => Math.atan2(s.b[1] - s.a[1], s.b[0] - s.a[0]) * 180 / Math.PI;
+    for (const piece of network.segments) {
+      const source = deduped[piece.sourceIndex]!;
+      const delta = Math.abs(directionOf(piece) - directionOf(source));
+      const kept = Math.min(delta, 180 - delta);
+      // 贴合/延长会把端点投到 0.12 m 内的墙轴上：已足够长（≥0.8 m）的子段方向偏差 < 5°，
+      // 不会出现"横跨两条墙面"的斜撑（那种子段与来源墙轴相差数十度）。
+      if (Math.hypot(piece.b[0] - piece.a[0], piece.b[1] - piece.a[1]) >= .8) expect(kept).toBeLessThan(5);
+    }
+  });
+
+  it("保持断开就进清单：相邻墙面之间的错位缺口带原因进入未闭合清单，不被静默吸收", async () => {
+    const { buildWallNetwork } = await import("../src/pipeline/wallNetwork");
+    const network = buildWallNetwork(mergeWallSegments(asSegments()).segments);
+    expect(network.unclosed.length).toBeGreaterThan(0);
+    expect(network.unclosed.every(u => typeof u.reason === "string" && u.note.length > 0)).toBe(true);
+    expect(network.unclosed.some(u => u.reason === "no-alignment" || u.reason === "extension-too-short")).toBe(true);
+  });
+});

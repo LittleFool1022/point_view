@@ -17,6 +17,7 @@
     "test:ui": "playwright test --config playwright.config.ts",
     "measure:baseline": "vite-node scripts/measure-baseline.ts",
     "diagnose:room-closure": "vite-node scripts/diagnose-room-closure.ts",
+    "diagnose:east-wall": "vite-node scripts/diagnose-east-wall.ts",
     "replay:room-faces": "vite-node scripts/replay-room-faces.ts"
   },
   "devDependencies": {
