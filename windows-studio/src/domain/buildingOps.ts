@@ -30,6 +30,11 @@ export function levelClosure(m: BuildingModel, levelId: string): ClosureReport {
   const { report } = closeLevel(m, levelId);
   return report;
 }
+/** 本层墙网结果（房间与未闭合清单）：人工处置后按同一墙网几何重算用，返回对象为新建，不改动输入模型。 */
+export function levelRoomsAndIssues(m: BuildingModel, levelId: string): { rooms: Room[]; unclosedIssues: UnclosedIssue[] } {
+  const { rooms, unclosedIssues } = closeLevel(m, levelId);
+  return { rooms, unclosedIssues };
+}
 
 type Point = Vec2;
 /** 墙网节点：同一位置合并后的连接点，记录其上的墙段与是否为本层分叉点。 */
@@ -46,7 +51,8 @@ interface LevelClosure { rooms: Room[]; unclosedIssues: UnclosedIssue[]; report:
  * 如实输出为未闭合问题。面积/周长取墙轴几何，不做精度认证。
  */
 function closeLevel(m: BuildingModel, levelId: string, heightM?: number): LevelClosure {
-  const walls = m.walls.filter(w => w.levelId === levelId);
+  // 人工软删除的墙段保留留痕但不参与墙网与房间。
+  const walls = m.walls.filter(w => w.levelId === levelId && !w.removed);
   const nodes: NetNode[] = [], edges: NetEdge[] = [];
   const nodeAt = (p: Point) => { const i = nodes.findIndex(q => Math.hypot(q.p[0]-p[0], q.p[1]-p[1]) < ROOM_NODE_TOLERANCE_M); if (i >= 0) return i; nodes.push({ p:[p[0],p[1]], walls:[], branch:false }); return nodes.length-1; };
   walls.forEach((w,i) => {

@@ -1,4 +1,6 @@
-import {polygonArea,validateBuilding,wallLength,type BuildingModel} from './building';
+import {REVIEW_CODES,manualWall,polygonArea,validateBuilding,wallLength,type BuildingModel} from './building';
+/** 人工墙段不参与自动尺寸核验的“独立实测”口径：自动模型尺寸不足以代表人工补墙。 */
+export const isManualScope=(m:BuildingModel,elementId:string)=>m.walls.some(w=>w.id===elementId&&manualWall(w,m));
 export type AccuracyMetric='lengthM'|'heightM'|'thicknessM'|'widthM'|'offsetM'|'sillM'|'areaM2'|'elevationM';
 export interface AccuracyReference {
   schema:'survey-accuracy-reference/1'; modelId:string; sourceStamp:string;
@@ -34,11 +36,11 @@ export function reportForAccuracyRecord(model:BuildingModel,record:AccuracyRecor
 }
 /** 每项阈值与不确定度沿用相同单位；不将拟合残差当成独立测量真值。 */
 export function assessAccuracy(model:BuildingModel,reference:AccuracyReference){
-  if(validateBuilding(model).some(i=>i.code!=='UNREVIEWED'))throw Error('建筑模型无效，无法核验精度。');
+  if(validateBuilding(model).some(i=>i.code!=='UNREVIEWED'&&!REVIEW_CODES.includes(i.code)))throw Error('建筑模型无效，无法核验精度。');
   if(reference?.schema!=='survey-accuracy-reference/1'||reference.modelId!==model.id||reference.sourceStamp!==model.sourceStamp)throw Error('精度基准与当前模型或测量来源不一致。');
   assertReference(reference);
   const p=reference.provenance,rows=reference.measurements;
-  const results=rows.map(row=>{
+  const results=rows.filter(row=>!isManualScope(model,row.elementId)).map(row=>{
     const wall=model.walls.find(w=>w.id===row.elementId),opening=model.openings.find(o=>o.id===row.elementId),room=model.rooms.find(r=>r.id===row.elementId),level=model.levels.find(l=>l.id===row.elementId);
     let actual:number|undefined;
     if(wall)actual=({lengthM:wallLength(wall),heightM:wall.heightM,thicknessM:wall.thicknessM} as Partial<Record<AccuracyMetric,number>>)[row.metric];
@@ -49,13 +51,13 @@ export function assessAccuracy(model:BuildingModel,reference:AccuracyReference){
     const error=actual-row.reference,absError=Math.abs(error),guardedError=absError+row.uncertainty;
     return {...row,unit:row.metric==='areaM2'?'m²':'m',actual,error,absError,guardedError,withinTolerance:guardedError<=row.tolerance+1e-12};
   });
-  const failed=results.filter(r=>!r.withinTolerance).length;
-  return {schema:'survey-accuracy-report/1',modelId:model.id,modelRevision:model.revision,sourceStamp:model.sourceStamp,sourceSha256:model.sourceSha256,createdAt:new Date().toISOString(),provenance:p,status:failed?'sample-out-of-tolerance':'sample-within-tolerance',independentReference:p.kind==='independent-survey',constructionAccepted:false,counts:{checked:results.length,failed,totalElements:model.walls.length+model.openings.length+model.rooms.length+model.levels.length,coveredElements:new Set(results.map(r=>r.elementId)).size},acceptanceRule:'abs(model-reference)+reference uncertainty <= user tolerance',results,limitations:['仅核验已列出的构件与标量尺寸，不代表全工程施工放行。','不包含配准误差、墙面位置/垂直度、材料或目标CAD/BIM兼容认证。','阈值和独立测量来源由提供者负责；合成基准不作为真实精度验收。']};
+  const failed=results.filter(r=>!r.withinTolerance).length,manualRows=rows.length-results.length;
+  return {schema:'survey-accuracy-report/1',modelId:model.id,modelRevision:model.revision,sourceStamp:model.sourceStamp,sourceSha256:model.sourceSha256,createdAt:new Date().toISOString(),provenance:p,status:failed?'sample-out-of-tolerance':'sample-within-tolerance',independentReference:p.kind==='independent-survey',constructionAccepted:false,counts:{checked:results.length,failed,totalElements:model.walls.filter(w=>!manualWall(w,model)).length+model.openings.length+model.rooms.length+model.levels.length,coveredElements:new Set(results.map(r=>r.elementId)).size,skippedManual:manualRows},acceptanceRule:'abs(model-reference)+reference uncertainty <= user tolerance',results,limitations:[`人工墙段（人工新增或人工修改）已跳过 ${manualRows} 项核验项，不参与自动尺寸核验的独立实测口径。`,'仅核验已列出的构件与标量尺寸，不代表全工程施工放行。','不包含配准误差、墙面位置/垂直度、材料或目标CAD/BIM兼容认证。','阈值和独立测量来源由提供者负责；合成基准不作为真实精度验收。']};
 }
 /** 候选清单只提供待填写字段，不把当前模型尺寸预填成独立真值。 */
 export function accuracyReferenceTemplate(model:BuildingModel){
   const measurements:Array<{elementId:string;name:string;metric:AccuracyMetric;reference:null;tolerance:null;uncertainty:null}>=[];
   const add=(id:string,name:string,metrics:AccuracyMetric[])=>metrics.forEach(metric=>measurements.push({elementId:id,name,metric,reference:null,tolerance:null,uncertainty:null}));
-  model.walls.forEach(w=>add(w.id,w.name??w.id,['lengthM','heightM','thicknessM']));model.openings.forEach(o=>add(o.id,o.name??o.id,['widthM','heightM','offsetM','sillM']));model.rooms.forEach(r=>add(r.id,r.name,['areaM2','heightM']));model.levels.forEach(l=>add(l.id,l.name,['elevationM']));
+  model.walls.filter(w=>!manualWall(w,model)&&!w.removed).forEach(w=>add(w.id,w.name??w.id,['lengthM','heightM','thicknessM']));model.openings.forEach(o=>add(o.id,o.name??o.id,['widthM','heightM','offsetM','sillM']));model.rooms.forEach(r=>add(r.id,r.name,['areaM2','heightM']));model.levels.forEach(l=>add(l.id,l.name,['elevationM']));
   return {schema:'survey-accuracy-reference/1',modelId:model.id,sourceStamp:model.sourceStamp,provenance:{kind:'independent-survey',method:'',operator:'',measuredAt:'',documentRef:''},measurements};
 }

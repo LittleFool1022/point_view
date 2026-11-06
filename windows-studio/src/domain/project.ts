@@ -4,7 +4,7 @@ import type { CadProjection } from "../../../src/cad/geometry";
 import type { SourceUnit } from "../pipeline/analysis";
 import { sourceSize, type SourceInput } from "./source";
 import { validateClips, type ClipRule } from "./cleaning";
-import { assertBuildingShape, validateBuilding, type BuildingModel } from "./building";
+import { REVIEW_CODES, assertBuildingShape, validateBuilding, type BuildingModel } from "./building";
 import { assertRenderScene, type RenderSceneSettings } from "./renderScene";
 import { assertPairedReview, verifyPairedReview, type PairedReview, type PairedFrameReference } from "./pairedReview";
 import { assertDeviceReceipt } from "./device";
@@ -31,7 +31,8 @@ export function validateProjectState(m: any) {
   if(m.source.deviceReceipt)assertDeviceReceipt(m.source.deviceReceipt,m.source);
   if(m.pairedReview)assertPairedReview(m.pairedReview);
   if(m.renderScene)assertRenderScene(m.renderScene);
-  if(m.building) { assertBuildingShape(m.building); if(validateBuilding(m.building).some(i=>i.code!=="UNREVIEWED")) throw Error("工程建筑模型几何或关联关系无效。"); }
+  // 人工复核记录（确认洞口、人工墙段、软删除留痕）随工程保存并在检查中可见，不作为几何或关联错误拒绝打开。
+  if(m.building) { assertBuildingShape(m.building); if(validateBuilding(m.building).some(i=>i.code!=="UNREVIEWED"&&!REVIEW_CODES.includes(i.code))) throw Error("工程建筑模型几何或关联关系无效。"); }
   if(m.accuracy){assertAccuracyRecord(m.accuracy);if(m.building)reportForAccuracyRecord(m.building,m.accuracy);}
   for (const o of m.building?.openings ?? []) for (const k of o.keyframes ?? []) {
     if(k.sourceSha256!==m.source.sha256) throw Error("门窗关键帧与工程原件不一致。");
