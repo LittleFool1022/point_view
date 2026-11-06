@@ -30,6 +30,7 @@ import { assessImportExtents, SOURCE_UNIT_LABELS, type ImportCheck, type ImportR
 import { RenderWorkspace } from "./RenderWorkspace";
 import { DEFAULT_RENDER_SCENE, type RenderSceneSettings } from "./domain/renderScene";
 import { BuildingWorkspace } from "./BuildingWorkspace";
+import { reviewFitImpact } from "./domain/buildingReview";
 import { validateBuilding, buildingQuantities, type BuildingModel } from "./domain/building";
 import { sourceStamp, type BuildingOptions } from "./domain/buildingOps";
 import { drawingFromBuilding, annotateSurveyDrawing } from "./domain/buildingDrawing";
@@ -63,6 +64,8 @@ export function App() {
   const [annotations, setAnnotations] = useState<CadAnnotation[]>([]), [label, setLabel] = useState(""), [category, setCategory] = useState<NonNullable<CadAnnotation["category"]>>("text");
   const [placing, setPlacing] = useState<Pick<CadAnnotation, "text" | "category">>(), [selectedAnnotationId, setSelectedAnnotationId] = useState<string>();
   const [busy, setBusy] = useState(""), [notice, setNotice] = useState(""), [stale, setStale] = useState(false), [dirty, setDirty] = useState(false);
+  /** 点云不可用（源件缺失或无法解码）：工程仍可打开并保留模型与复核记录，依赖点云的操作须禁用并明示。 */
+  const [cloudMissing, setCloudMissing] = useState(false);
   const worker = useRef<Worker | undefined>(undefined), sequence = useRef(0), pending = useRef<{ id: number; resolve(value: unknown): void; reject(error: Error): void } | undefined>(undefined);
   useEffect(() => () => worker.current?.terminate(), []);
   useEffect(() => window.surveyDesktop?.onProgress(stage => setBusy(current => current ? stage : current)), []);
@@ -99,6 +102,7 @@ export function App() {
     // 新尺度下旧裁剪、图纸、标注、模型、精度记录和关键帧关联均不可沿用。
     setPairedReview(undefined); setActiveKeyframePage(undefined); setBuilding(undefined); setAccuracy(undefined); setRenderScene({...DEFAULT_RENDER_SCENE}); setModelHistory({undo:[],redo:[]});
     setEditHistory({ undo: (next.clips ?? []).map((_, i) => next.clips!.slice(0, i)), redo: [] });
+    setCloudMissing(false);
     setSource(next); setCloud(decoded.cloud); setImportCheck(check); setUnitConfirmed(false); setUnits(next.units);
     setDrawing(undefined); setCadHistory({undo:[],redo:[]});setDimensionMode(undefined);setAnnotations([]); setPlacing(undefined); setStale(false); setDirty(true); setView("drawing");
     const count = decoded.cloud.sourcePointCount ?? decoded.cloud.visible.length;
@@ -312,6 +316,11 @@ export function App() {
   }
   function generateBuilding(options: BuildingOptions) {
     if(!source)return;
+    // 重新拟合会覆盖人工墙段与其处置记录：拟合前逐条列出并阻断（模型层 reviewPolicy=block-on-fit，界面不静默丢弃）。
+    if(building){
+      const impact=reviewFitImpact(building);
+      if(!impact.ok){setNotice(`已阻断重新拟合：${impact.wallIds.length} 个人工墙段、${impact.actionIds.length} 条复核处置记录会被覆盖。${impact.reasons.slice(0,2).join("；")}`);return;}
+    }
     if(!confirmSuspiciousUnit())return;
     void action("从当前楼层点云提取墙体候选",async()=>{
       const next=await request<BuildingModel>({action:"building",source,buildingOptions:options});
@@ -319,6 +328,7 @@ export function App() {
     });
   }
   async function getWallElevation(wallId:string,options:ElevationOptions):Promise<WallElevation>{
+    if(cloudMissing)throw Error('点云对照不可用，墙面门窗识别需要完整点云；点云恢复后重开工程即可。');
     if(!source||!building||busy||building.sourceStamp!==sourceStamp(source))throw Error('请先完成当前任务并更新建筑模型测量关联。');
     const wall=building.walls.find(w=>w.id===wallId),floor=building.levels.find(l=>l.id===wall?.levelId);if(!wall||!floor)throw Error('请先选择宿主墙体。');
     setBusy('提取完整点云的墙面颜色与深度');
@@ -421,6 +431,13 @@ export function App() {
     if (!canReplace()) return;
     void action("打开测量工程", async () => {
       const f = await openFile("project"); if (!f) return;
+      // 工程内已带建筑模型时，点云不可用（文件缺失或无法读取）不拒绝打开：保留建筑模型、复核记录与处置历史，
+      // 只是点云对照不可用；依赖点云的操作禁用并提示。源件恢复后重开工程即恢复对照，无需迁移工程文件。
+      let sourceMissing = false;
+      const loadSource = async (source: SurveySource, keepOnFailure: boolean) => {
+        if (!keepOnFailure) return importSource(source);
+        try { await importSource(source); } catch (error) { sourceMissing = true; setNotice(`点云对照不可用：${error instanceof Error ? error.message : String(error)}`); }
+      };
       let p: SurveyProject;
       if (f.native && f.project) {
         try { validateProjectState(f.project); } catch (error) { void window.surveyDesktop?.release(f.native.token); throw error; }
@@ -439,7 +456,11 @@ export function App() {
         const bytes = f.data ?? await f.file?.arrayBuffer(); if (!bytes) throw Error("工程数据缺失。");
         p = await decodeProject(bytes);
       }
-      await importSource(p.source); setPairedReview(p.pairedReview); setActiveKeyframePage(p.activeKeyframePage);  setBuilding(p.building); setAccuracy(p.accuracy); setRenderScene(p.renderScene??{...DEFAULT_RENDER_SCENE}); setProjection(p.projection); setSettings({ ...DEFAULT_CAD_DRAWING_SETTINGS, ...p.settings }); setAnnotations(p.annotations); setDrawing(p.drawing);setStale(p.drawingStale??false); setUnits(p.source.units); setDirty(false); setNotice("测量工程已恢复。");
+      // 点云先于模型提交（导入会重置模型状态），失败时按“点云对照不可用”继续打开。
+      await loadSource(p.source, !!p.building);
+      setCloudMissing(sourceMissing); if (sourceMissing) setSource(p.source);
+      setPairedReview(p.pairedReview); setActiveKeyframePage(p.activeKeyframePage);  setBuilding(p.building); setAccuracy(p.accuracy); setRenderScene(p.renderScene??{...DEFAULT_RENDER_SCENE}); setProjection(p.projection); setSettings({ ...DEFAULT_CAD_DRAWING_SETTINGS, ...p.settings }); setAnnotations(p.annotations); setDrawing(p.drawing);setStale(p.drawingStale??false); setUnits(p.source.units); setDirty(false);
+      setNotice(sourceMissing ? "测量工程已恢复；点云对照不可用，建筑模型、复核记录与处置历史已保留，点云恢复后重开即可恢复对照。" : "测量工程已恢复。");
     });
   }
   function cancel() { brushEpoch.current++; semanticSequence.current++; semanticClient.current?.dispose(); semanticClient.current=undefined; deliverySequence.current++; cancelIfc.current?.(); void window.surveyDesktop?.cancel(); worker.current?.terminate(); worker.current = undefined; pending.current?.reject(Error("已取消分析，原始文件和现有工程保留；下次分析会重新读取完整源点。")); pending.current = undefined; }
@@ -514,7 +535,7 @@ export function App() {
         </details>
       </nav>
       <div className="header-project">
-        <div className={`file-name ${dirty ? "is-dirty" : ""}`} title={source?.name ?? "未打开工程"}>{source?.name ?? "未打开工程"}{dirty ? " · 未保存" : ""}</div>
+        <div className={`file-name ${dirty ? "is-dirty" : ""}`} title={cloudMissing ? `点云对照不可用：${source?.name ?? "源件缺失"}` : source?.name ?? "未打开工程"}>{cloudMissing ? "点云对照不可用" : source?.name ?? "未打开工程"}{dirty ? " · 未保存" : ""}</div>
         <div className="header-actions">
           <button disabled={!!busy} title="打开测量工程 (Ctrl+O)" onClick={openProject}><FolderOpen size={15}/>打开工程</button>
           <button disabled={!source || !!busy} title="保存测量工程 (Ctrl+S)" onClick={saveProject}><FileDown size={15}/>保存工程</button>
@@ -648,7 +669,7 @@ export function App() {
       </div>
     </main>
     : view === "keyframes" ? <PairedWorkspace pages={source?.native?.keyframePages} activePage={activeKeyframePage} onPage={switchKeyframePage} review={pairedReview} cloud={cloud} busy={!!busy} onImport={importFrames} onChange={r=>{setPairedReview(r);setDirty(true);}} onExport={exportReview} model={building} onBuild={buildPairedModel} onAdd={addPairedOpening} onLink={linkPairedOpening} onRecognize={recognizeFrames}/>
-    : view === "bim" ? <><div className="extension-delivery"><button disabled={!building||!!busy} onClick={exportUnified}>导出 CAD / BIM 复核包</button></div><BuildingWorkspace accuracy={accuracy} onAccuracy={r=>{setAccuracy(r);setDirty(true);}} onElevation={getWallElevation} model={building} source={source} cloud={cloud} busy={!!busy} onChange={changeBuilding} onGenerate={generateBuilding} onExport={exportBuilding} onDrawing={modelDrawing} onNotice={setNotice} canUndo={!!modelHistory.undo.length} canRedo={!!modelHistory.redo.length} onUndo={()=>changeBuilding(modelHistory.undo.at(-1),"undo")} onRedo={()=>changeBuilding(modelHistory.redo.at(-1),"redo")}/></>
+    : view === "bim" ? <><div className="extension-delivery"><button disabled={!building||!!busy} onClick={exportUnified}>导出 CAD / BIM 复核包</button></div><BuildingWorkspace accuracy={accuracy} onAccuracy={r=>{setAccuracy(r);setDirty(true);}} onElevation={getWallElevation} model={building} source={source} cloud={cloud} cloudMissing={cloudMissing} busy={!!busy} onChange={changeBuilding} onGenerate={generateBuilding} onExport={exportBuilding} onDrawing={modelDrawing} onNotice={setNotice} canUndo={!!modelHistory.undo.length} canRedo={!!modelHistory.redo.length} onUndo={()=>changeBuilding(modelHistory.undo.at(-1),"undo")} onRedo={()=>changeBuilding(modelHistory.redo.at(-1),"redo")}/></>
     : view === "delivery" ? <main className="delivery-view">
       <div className="delivery-shell">
         <div className="delivery-grid">
