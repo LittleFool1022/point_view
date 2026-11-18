@@ -1,0 +1,269 @@
+/* 数字展馆：冷银结构、石墨底色、暖金属细节。沿用原工作台布局契约。 */
+:root {
+  font-family: "Helvetica Neue", "Arial", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --bg-app: #101113;
+  --bg-canvas: #101214;
+  --surface: #1b1e21;
+  --surface-raised: #25292d;
+  --surface-sunken: #141618;
+  --surface-accent: #2a2927;
+  --text-primary: #eeefeb;
+  --text-secondary: #c1c5c7;
+  --text-muted: #979fa3;
+  --text-disabled: #697176;
+  --border: #353a3e;
+  --border-strong: #51595e;
+  --accent: #d5bfa6;
+  --accent-hover: #e7d7c3;
+  --accent-active: #baa288;
+  --accent-soft: rgba(213, 191, 166, 0.1);
+  --success: #99bea9;
+  --warning: #d3b97f;
+  --error: #e3958e;
+  --radius-sm: 3px;
+  --radius-md: 5px;
+  --shadow-1: 0 1px 0 rgba(255, 255, 255, 0.025);
+  --shadow-2: 0 12px 36px rgba(0, 0, 0, 0.24);
+  --shadow-3: 0 24px 80px rgba(0, 0, 0, 0.4);
+  color: var(--text-primary);
+  background: var(--bg-app);
+}
+
+.app-shell { grid-template-rows: 80px minmax(0, 1fr); }
+.app-shell button:hover:not(:disabled) { transform: none; }
+.app-shell button:active:not(:disabled) { transform: scale(0.98); }
+.app-shell svg { stroke-width: 1.5; }
+.topbar {
+  grid-template-columns: minmax(205px, 1fr) auto minmax(235px, 1fr);
+  gap: 24px;
+  padding-inline: 32px;
+  background: #101113;
+  border-bottom-color: #303437;
+  box-shadow: none;
+}
+.brand { gap: 12px; }
+.brand-mark {
+  position: relative;
+  width: 32px;
+  height: 36px;
+  flex-basis: 32px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  transform: skewY(-24deg);
+}
+.brand-mark > span { display: block; width: 7px; height: 26px; background: #e0e4e4; }
+.brand-mark > span:nth-child(2) { height: 36px; }
+.brand-mark > span:nth-child(3) { height: 19px; background: var(--accent); }
+.brand > div strong { font-size: 17px; letter-spacing: -0.035em; font-weight: 650; }
+.brand > div small { font-size: 11px; letter-spacing: 0.1em; }
+.project-context { display: none; }
+.mode-tabs { gap: 3px; }
+.mode-tabs button { min-height: 40px; padding-inline: 15px; font-size: 13px; border-radius: 2px; }
+.mode-tabs button.active { color: var(--text-primary); background: #232629; border-color: #363c40; font-weight: 500; }
+.mode-tabs button:hover:not(:disabled) { background: #1c1f21; }
+.connection { gap: 10px; }
+.connection > div { display: flex; }
+.connection strong { font-size: 11px; }
+.connection .connection-button { font-size: 12px; min-height: 36px; height: 36px; }
+.connection-button.primary, .connection-button.primary:hover:not(:disabled) { color: #191b1c; }
+.connection .icon-button { min-height: 36px; height: 36px; width: 36px; background: transparent; border-color: transparent; }
+.connection-dot.idle { background: #90979b; }
+.icon-button:hover:not(:disabled), .connection-button:hover:not(:disabled), .secondary-button:hover:not(:disabled) { background: #30363a; border-color: #778086; }
+
+/* 概览有独立滚动面，低窗口和触屏设备都能到达所有入口。 */
+.spatial-welcome {
+  grid-row: 2;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0 48px;
+  scrollbar-width: thin;
+  scrollbar-color: #51595e #101113;
+  background: #101113;
+}
+.welcome-index {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 65px;
+  gap: 20px;
+  color: var(--text-muted);
+  font: 11px/1.5 ui-monospace, "SFMono-Regular", monospace;
+  letter-spacing: 0.1em;
+}
+.welcome-index > span:last-child { display: inline-flex; align-items: center; gap: 20px; letter-spacing: 0.08em; }
+.welcome-composition {
+  position: relative;
+  min-height: 540px;
+  height: clamp(540px, calc(100dvh - 330px), 820px);
+  display: grid;
+  grid-template-columns: 1fr 1.15fr;
+  align-items: center;
+  isolation: isolate;
+}
+.welcome-copy { position: relative; z-index: 2; padding-bottom: 74px; }
+.welcome-kicker { display: flex; align-items: center; gap: 10px; color: var(--accent); font-size: 12px; letter-spacing: 0.16em; }
+.edition-mark { width: 6px; height: 6px; display: inline-block; background: var(--accent); }
+.welcome-copy h1 { margin: 26px 0 23px; font-size: clamp(46px, 4.7vw, 84px); font-weight: 500; line-height: 1.19; letter-spacing: -0.065em; }
+.welcome-copy h1 > span { color: #a8afb3; }
+.welcome-description { margin: 0; color: #a4abaf; font-size: 14px; line-height: 1.9; letter-spacing: 0.035em; }
+.welcome-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 24px; margin-top: 34px; }
+.welcome-actions button { min-height: 48px; display: inline-flex; align-items: center; justify-content: center; gap: 10px; border-radius: 2px; cursor: pointer; }
+.welcome-import { padding: 0 18px; border: 1px solid #e2e5e2; background: #e2e5e2; color: #16191b; font-weight: 500; }
+.welcome-import > svg:last-child { margin-left: 16px; }
+.welcome-import:hover:not(:disabled) { background: #fff; border-color: #fff; }
+.welcome-connect { padding: 0; border: 0; background: transparent; color: #c1c5c7; }
+.welcome-connect:hover:not(:disabled) { color: #fff; }
+.welcome-formats { display: block; margin-top: 16px; color: var(--text-muted); font: 11px/1.5 ui-monospace, monospace; letter-spacing: 0.08em; }
+.welcome-artwork { position: relative; z-index: 1; align-self: stretch; min-width: 0; margin: -35px -25px 30px -30px; }
+.spatial-sculpture { position: absolute; inset: 0; }
+.spatial-sculpture canvas { display: block; width: 100%; height: 100%; }
+.sculpture-index { position: absolute; z-index: 2; top: 20px; right: 4px; color: var(--text-muted); font-size: 11px; line-height: 1.8; letter-spacing: 0.1em; text-align: right; pointer-events: none; }
+.sculpture-index b { font: 11px/1.5 ui-monospace, monospace; font-weight: 400; }
+.welcome-artwork figcaption { position: absolute; z-index: 2; left: 10%; right: 8%; bottom: 60px; display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--text-muted); font-size: 11px; letter-spacing: 0.06em; }
+.welcome-artwork figcaption button { min-height: 44px; display: inline-flex; align-items: center; gap: 8px; padding: 0 10px; color: var(--text-secondary); background: transparent; border: 1px solid var(--border); border-radius: 2px; font-size: 11px; cursor: pointer; }
+.welcome-artwork figcaption button:hover { border-color: var(--border-strong); background: #1b1e21; }
+.welcome-wordmark { position: absolute; z-index: -1; left: -7px; right: 0; bottom: -10px; overflow: hidden; color: #282d30; font-size: clamp(100px, 13.8vw, 240px); font-weight: 600; line-height: 0.95; letter-spacing: -0.075em; white-space: nowrap; user-select: none; pointer-events: none; }
+.sculpture-loading, .sculpture-fallback { position: absolute; inset: 20%; display: flex; flex-direction: column; justify-content: center; text-align: center; color: var(--text-muted); font-size: 13px; }
+.sculpture-fallback > span { color: var(--text-secondary); font-size: clamp(30px, 4vw, 64px); letter-spacing: -0.05em; }
+.sculpture-fallback p { font-size: 13px; line-height: 1.8; }
+.spatial-sculpture.unavailable canvas { visibility: hidden; }
+.welcome-paths { position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-block: 1px solid #3b4145; background: #101113; }
+.welcome-paths > button { min-width: 0; display: flex; flex-direction: column; gap: 12px; padding: 23px 28px; border: 0; border-right: 1px solid #30363a; border-radius: 0; color: var(--text-primary); text-align: left; background: transparent; cursor: pointer; }
+.welcome-paths > button:first-child { padding-left: 0; }
+.welcome-paths > button:last-child { border-right: 0; padding-right: 0; }
+.welcome-paths > button:hover:not(:disabled) { background: #191c1e; }
+.path-number { color: var(--accent); font: 11px/1.5 ui-monospace, monospace; letter-spacing: 0.08em; }
+.path-title { display: flex; justify-content: space-between; align-items: center; gap: 12px; width: 100%; font-size: 18px; letter-spacing: -0.02em; }
+.path-title > svg { flex-shrink: 0; width: 19px; height: 19px; color: var(--text-muted); transition: transform 180ms ease-out; }
+.welcome-paths > button:hover .path-title > svg { transform: translate(3px, -3px); color: var(--text-primary); }
+.path-description { color: var(--text-muted); font-size: 12px; line-height: 1.6; }
+.welcome-footer { min-height: 58px; display: flex; align-items: center; justify-content: space-between; gap: 16px; color: var(--text-muted); font-size: 11px; letter-spacing: 0.07em; }
+.welcome-footer > span:first-child { display: inline-flex; align-items: center; gap: 10px; }
+.welcome-footer i { width: 14px; height: 1px; background: #626a6f; }
+
+/* 工作模式：沿画布边缘组织真实状态与编辑操作。 */
+.is-workbench .workspace { background: var(--bg-canvas); }
+.is-workbench .tool-rail { top: 100px; left: 20px; width: 60px; padding: 4px; background: #191c1e; }
+.tool-rail button.active, .action-dock > button.active { color: var(--accent-hover); border-color: #766758; background: var(--accent-soft); }
+.action-dock > button.primary { color: var(--accent-hover); }
+.is-workbench .cloud-hud { left: 96px; top: 20px; background: #191c1e; }
+.cloud-hud svg { color: var(--text-muted); }
+.is-workbench .status-stack { top: 20px; right: 20px; width: auto; flex-direction: row; background: #191c1e; }
+.action-dock { grid-template-rows: minmax(0, 1fr); height: auto; }
+.workspace-caption { position: absolute; z-index: 10; top: 78px; left: 96px; display: flex; flex-direction: column; gap: 5px; max-width: min(360px, 45%); pointer-events: none; }
+.workspace-caption > span { color: var(--text-muted); font: 10px/1.5 ui-monospace, monospace; letter-spacing: 0.08em; }
+.workspace-caption > strong { overflow: hidden; color: var(--text-secondary); font-size: 13px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-empty { max-width: 560px; }
+.workspace-empty > strong { font-size: clamp(21px, 2.5vw, 34px); font-weight: 500; letter-spacing: -0.04em; }
+.workspace-eyebrow { margin-bottom: 10px; color: var(--accent); font: 11px/1.5 ui-monospace, monospace; letter-spacing: 0.14em; }
+.workspace-empty p { color: var(--text-muted); }
+.view-controls { background: #191c1e; }
+.primary-button, .quality-export { color: #1c1c1b; }
+.selection-box { border-color: var(--accent); background: rgba(213, 191, 166, 0.12); }
+.camera-empty, .map-placeholder { background: #15181a; }
+.camera-badge { background: #202528; }
+.camera-badge:hover { background: #30363a; color: var(--text-primary); border-color: var(--border-strong); }
+.panel-visibility-button { border-radius: 4px; width: 32px; height: 32px; top: -8px; }
+.camera-panel > .panel-visibility-button { right: -6px; }
+.map-panel > .panel-visibility-button { left: -6px; }
+.panel-visibility-button:hover { background: #30363a; border-color: var(--border-strong); }
+.map-wait { background: #1b1e21; }
+.map-canvas.leaflet-container { background: #20262a; }
+.action-notice { top: 92px; }
+.settings-drawer, .quality-drawer, .cad-workspace { top: 92px; max-height: calc(100% - 108px); }
+.cad-workspace { height: calc(100% - 108px); background: #1b1e21; }
+.settings-drawer input, .settings-drawer select { background: #141618; }
+.settings-drawer input[type="checkbox"] { accent-color: var(--accent); }
+.settings-drawer, .quality-drawer { border-top: 2px solid #a4a9a9; }
+.drawer-header { padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.drawer-header strong { letter-spacing: -0.02em; }
+.cad-preview-pane, .cad-preview-empty { background-color: #141618; }
+.cad-preview-empty { background-image: none; }
+.cad-preview-empty svg { color: var(--accent); }
+.cad-preview-toolbar, .cad-layer-panel, .cad-entity-inspector { background: #1b1e21; }
+.cad-parameter-panel, .cad-inspector-head, .cad-inspector-tabs, .cad-inspector-footer { background: #1b1e21; }
+.cad-form-grid label > input, .cad-form-grid label > select { background: #141618; }
+.cad-preview-toolbar button:hover, .cad-preview-toolbar button.active, .cad-layer-panel button:hover { color: var(--accent); border-color: var(--border-strong); background: var(--accent-soft); }
+
+@media (min-width: 1500px) {
+  .topbar { padding-inline: 48px; }
+  .spatial-welcome { padding-inline: 64px; }
+  .welcome-copy { padding-left: 24px; }
+}
+@media (max-width: 1100px) {
+  .topbar { grid-template-columns: auto 1fr auto; gap: 16px; padding-inline: 24px; }
+  .connection > div { display: none; }
+  .mode-tabs { display: flex; }
+  .mode-tabs button { padding-inline: 11px; }
+  .spatial-welcome { padding-inline: 32px; }
+  .welcome-composition { min-height: 520px; height: 520px; grid-template-columns: 1fr 1fr; }
+  .welcome-copy h1 { font-size: 52px; }
+  .welcome-actions { gap: 14px; }
+  .welcome-artwork { margin-left: -30px; margin-right: -20px; }
+  .welcome-artwork figcaption { left: 12%; right: 6%; }
+  .welcome-artwork figcaption > span { display: none; }
+  .path-title { font-size: 16px; }
+  .welcome-paths > button { padding-inline: 20px; }
+  .is-workbench .status-stack { top: 78px; }
+}
+@media (max-width: 760px) {
+  .app-shell { grid-template-rows: 112px minmax(0, 1fr); }
+  .topbar { display: grid; grid-template-columns: 1fr auto; grid-template-rows: 62px 50px; gap: 0 12px; padding: 0 20px; }
+  .brand { grid-row: 1; grid-column: 1; }
+  .brand > div strong { font-size: 16px; }
+  .brand > div small { display: block; font-size: 11px; letter-spacing: 0; }
+  .brand-mark { width: 28px; flex-basis: 28px; transform: skewY(-24deg) scale(0.85); }
+  .connection { grid-row: 1; grid-column: 2; }
+  .connection .connection-button { font-size: 12px !important; width: auto; min-width: 64px; padding-inline: 9px; }
+  .connection-dot { display: none; }
+  .mode-tabs { position: static; grid-column: 1 / -1; grid-row: 2; display: flex; justify-content: space-between; width: 100%; height: 50px; padding: 4px 0 6px; border: 0; background: transparent; }
+  .mode-tabs button { flex: 1; min-height: 40px; padding-inline: 10px; font-size: 13px; }
+  .spatial-welcome { padding-inline: 24px; }
+  .welcome-index { min-height: 48px; font-size: 11px; }
+  .welcome-index > span:last-child { display: none; }
+  .welcome-composition { height: auto; min-height: 0; grid-template-columns: 1fr; }
+  .welcome-copy { padding: 24px 0 0; }
+  .welcome-kicker { font-size: 11px; }
+  .welcome-copy h1 { margin-block: 22px; font-size: clamp(42px, 8.8vw, 64px); }
+  .welcome-description { font-size: 14px; }
+  .welcome-actions { margin-top: 26px; gap: 18px; }
+  .welcome-actions button { font-size: 13px; }
+  .welcome-import { padding-inline: 14px; }
+  .welcome-import > svg:last-child { margin-left: 6px; }
+  .welcome-artwork { height: 365px; margin: 0 -10px 32px; }
+  .sculpture-index { top: 20px; right: 10px; font-size: 11px; }
+  .welcome-artwork figcaption { bottom: 20px; right: 10px; left: 10px; }
+  .welcome-artwork figcaption > span { display: inline; }
+  .welcome-wordmark { left: -3px; bottom: 0; font-size: 14.5vw; }
+  .welcome-paths { grid-template-columns: 1fr; }
+  .welcome-paths > button, .welcome-paths > button:first-child, .welcome-paths > button:last-child { padding: 22px 0; border-right: 0; border-bottom: 1px solid #30363a; gap: 10px; }
+  .welcome-paths > button:last-child { border-bottom: 0; }
+  .path-title { font-size: 18px; }
+  .welcome-footer { flex-wrap: wrap; justify-content: space-between; gap: 12px; padding-block: 20px; }
+  .welcome-footer > span:nth-child(2) { display: none; }
+  .is-workbench .tool-rail { left: 8px; right: 8px; top: 222px; width: auto; height: 56px; padding: 4px; flex-direction: row; }
+  .is-workbench .tool-rail button { width: 48px; }
+  .is-workbench .cloud-hud { left: 8px; top: 12px; }
+  .is-workbench .status-stack { top: 58px; left: 8px; right: 8px; }
+  .workspace-caption { top: 180px; left: 16px; max-width: calc(100% - 32px); }
+  .workspace-empty { top: 54%; width: calc(100% - 32px); padding: 12px; }
+  .workspace-empty > strong { font-size: 24px; }
+  .workspace-empty > div { flex-wrap: wrap; justify-content: center; }
+  .panel-switcher button.active { color: var(--accent-hover); border-color: #766758; background: var(--accent-soft); }
+  .action-dock-shell { width: calc(100% - 16px); justify-self: stretch; }
+  .camera-panel, .map-panel { width: calc(100% - 16px); justify-self: stretch; }
+  .is-workbench:has(.camera-panel, .map-panel) .workspace-empty { display: none; }
+  .action-notice { top: 124px; }
+  .settings-drawer, .quality-drawer, .cad-workspace { top: 124px; max-height: calc(100% - 136px); }
+  .cad-workspace { height: calc(100% - 136px); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .welcome-copy { animation: spatial-enter 700ms cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+  .welcome-paths { animation: spatial-enter 700ms 120ms cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+}
+@keyframes spatial-enter { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }

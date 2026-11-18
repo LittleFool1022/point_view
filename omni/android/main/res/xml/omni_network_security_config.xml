@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <!-- 生产 App 仅允许访问 OMNI 点对点 WLAN 的控制适配器。 -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain>10.42.0.1</domain>
+    </domain-config>
+</network-security-config>

@@ -1,0 +1,102 @@
+:root {
+  --omni-safe-top: env(safe-area-inset-top, 0px);
+  --omni-safe-right: env(safe-area-inset-right, 0px);
+  --omni-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --omni-safe-left: env(safe-area-inset-left, 0px);
+  --omni-font-scale: 1;
+  --ui-body: calc(14px * var(--omni-font-scale));
+  --ui-compact: calc(13px * var(--omni-font-scale));
+  --ui-caption: calc(12px * var(--omni-font-scale));
+  --ui-title: calc(26px * var(--omni-font-scale));
+}
+html, body, #root { height: 100%; overflow: hidden; background: #111827; }
+/* transform 为内部 fixed 控件建立包含块；安全区只在这一层扣除。 */
+#omni-safe-viewport {
+  position: fixed; inset: var(--omni-safe-top) var(--omni-safe-right) var(--omni-safe-bottom) var(--omni-safe-left);
+  overflow: hidden; overscroll-behavior: contain; transform: translateZ(0); background: var(--ui-workspace);
+}
+#omni-safe-viewport .handheld-app {
+  height: 100%;
+  width: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+#omni-safe-viewport .app-body {
+  margin-left: 0;
+  flex: 1 1 0%;
+  min-height: 0;
+  height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: 94px;
+  -webkit-overflow-scrolling: touch;
+}
+#omni-safe-viewport .app-header { height: 70px; padding: 0 20px; gap: 10px; flex-shrink: 0; }
+#omni-safe-viewport .brand-name { font-size: 19px; gap: 9px; letter-spacing: 1px; }
+#omni-safe-viewport .brand-name b { font-size: 10px; letter-spacing: 1px; }
+#omni-safe-viewport .header-actions { gap: 10px; }
+#omni-safe-viewport .avatar { display: inline-flex; min-width: 36px; min-height: 36px; }
+#omni-safe-viewport .page-content { padding: 24px 20px 28px; max-width: 1100px; }
+#omni-safe-viewport .side-nav {
+  position: absolute;
+  /* 清除桌面侧栏遗留的 top: 0，避免固定高度的底栏被定位到顶部。 */
+  inset: auto 0 0 0;
+  width: 100%;
+  height: 72px;
+  z-index: 30;
+  border-right: 0;
+  border-top: 1px solid var(--ui-dark-line);
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--toolbar-bg);
+}
+#omni-safe-viewport .brand-symbol, #omni-safe-viewport .nav-help, #omni-safe-viewport .nav-version { display: none; }
+#omni-safe-viewport .nav-items { flex-direction: row; justify-content: space-around; align-items: center; width: min(100%, 540px); height: 100%; margin: 0 auto; padding: 0 14px; gap: 14px; }
+#omni-safe-viewport .nav-items button { flex: 1; height: 62px; }
+#omni-safe-viewport .nav-items button.active::after { display: none; }
+#omni-safe-viewport .nav-items button.nav-scan-add { flex: 0 0 60px; transform: translateY(-16px); margin: 0 auto; }
+#omni-safe-viewport .immersive .app-body { padding: 0; overflow: hidden; }
+#omni-safe-viewport .capture-page { height: 100%; min-height: 0; }
+#omni-safe-viewport .capture-header { padding-top: 12px; }
+#omni-safe-viewport .capture-bottom { bottom: 12px; }
+#omni-safe-viewport .capture-title h1 { font-size: calc(14px * var(--omni-font-scale)); }
+#omni-safe-viewport .capture-telemetry { font-size: var(--ui-caption); max-width: none; }
+#omni-safe-viewport .text-input, #omni-safe-viewport .search-field input { font-size: calc(14px * var(--omni-font-scale)); }
+#omni-safe-viewport .device-identity > div > span, #omni-safe-viewport .sensor-status > div, #omni-safe-viewport .sensor-status > button { font-size: var(--ui-caption); }
+#omni-safe-viewport .demo-dialog { max-height: calc(100dvh - var(--omni-safe-top) - var(--omni-safe-bottom) - 32px); max-width: calc(100vw - var(--omni-safe-left) - var(--omni-safe-right) - 28px); }
+#omni-safe-viewport .transfer-float { bottom: 88px; }
+#omni-safe-viewport .toast { bottom: 88px; }
+#omni-safe-viewport .immersive .toast { bottom: 16px; }
+.omni-demo-marker { position: fixed; right: max(5px, var(--omni-safe-right)); top: 2px; font-size: 9px; padding: 1px 5px; border-radius: 4px; color: #cbd5e1; background: #111827b8; pointer-events: none; z-index: 100; }
+@media (orientation: portrait) and (max-width: 700px) {
+  #omni-safe-viewport .capture-controls { top: auto; bottom: 65px; left: 50%; right: auto; transform: translateX(-50%); gap: 7px; }
+  #omni-safe-viewport .capture-title h1 { max-width: 37vw; }
+  #omni-safe-viewport .pause-button { position: absolute; left: calc(100% + 18px); bottom: 20px; min-width: 62px; white-space: nowrap; }
+}
+@media (min-width: 701px) { #omni-safe-viewport .scan-launch-layout { padding-top: 12px; }.experience-card { max-width: 540px; } }
+@media (max-width: 380px) {
+  #omni-safe-viewport .app-header { padding: 0 12px; } #omni-safe-viewport .brand-name b { display: none; }
+  #omni-safe-viewport .page-content { padding-left: 14px; padding-right: 14px; }
+  #omni-safe-viewport .records-grid { grid-template-columns: 1fr; }
+  #omni-safe-viewport .capture-switch-tools > .icon-button { gap: 4px; padding: 5px; }
+}
+@media (orientation: landscape) and (max-height: 450px) {
+  #omni-safe-viewport .app-header { height: 56px; padding: 0 16px; }
+  #omni-safe-viewport .page-content { padding: 16px 20px 24px; }
+  #omni-safe-viewport .side-nav { height: 62px; }
+  #omni-safe-viewport .nav-items button { height: 52px; font-size: 11px; }
+  #omni-safe-viewport .nav-items button.nav-scan-add { flex: 0 0 52px; height: 52px; min-height: 52px; transform: translateY(-12px); }
+  #omni-safe-viewport .app-body { padding-bottom: 80px; }
+  #omni-safe-viewport .scan-launch-layout { padding-top: 4px; }
+  #omni-safe-viewport .sensor-status { padding: 12px 0 6px; }
+  #omni-safe-viewport .capture-controls { top: 46%; gap: 3px; right: 20px; }
+  #omni-safe-viewport .capture-time-label { margin-bottom: 0; }
+  #omni-safe-viewport .shutter { width: 58px; height: 58px; }
+  #omni-safe-viewport .pause-button { min-height: 36px; margin-top: 0; padding: 4px 10px; }
+  #omni-safe-viewport .capture-bottom { bottom: 8px; }
+}

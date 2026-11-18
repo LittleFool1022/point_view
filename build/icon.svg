@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">观曜空间工作台</title>
+  <desc id="desc">由工程边界、点云采样点和空间扫描轨迹组成的观曜标志</desc>
+  <rect x="24" y="24" width="464" height="464" rx="92" fill="#181714"/>
+  <g fill="none" stroke="#d77a3d" stroke-linecap="square" stroke-width="28">
+    <path d="M112 196v-84h84"/>
+    <path d="M316 112h84v84"/>
+    <path d="M400 316v84h-84"/>
+    <path d="M196 400h-84v-84"/>
+  </g>
+  <path d="M164 340 256 248l92-92" fill="none" stroke="#f3f0e9" stroke-linecap="round" stroke-width="18"/>
+  <circle cx="164" cy="340" r="27" fill="#d77a3d"/>
+  <circle cx="256" cy="248" r="22" fill="#f3f0e9"/>
+  <circle cx="348" cy="156" r="17" fill="#d77a3d"/>
+</svg>

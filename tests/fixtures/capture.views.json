@@ -1,0 +1,135 @@
+{
+  "version": 1,
+  "units": "m",
+  "frame_id": "fixture_world",
+  "pose_space": "raw",
+  "camera": "front",
+  "pose_convention": "T_world_camera_optical_xyzw",
+  "pcd": {
+    "name": "tri_true_color_fixture.pcd",
+    "sha256": "37834392e5792c3e9dfd4f89099560431b20b011bad4405e5eafa11e5238e4c5"
+  },
+  "calibration": {
+    "model": "opencv_radtan5",
+    "width": 64,
+    "height": 64,
+    "intrinsics": [
+      50.0,
+      50.0,
+      32.0,
+      32.0
+    ],
+    "distortion": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "T_camera_lidar": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  },
+  "policy": {
+    "translation_m": 0.08,
+    "rotation_deg": 8.0,
+    "acceleration_mps2": 0.3,
+    "angular_velocity_rps": 0.15,
+    "minimum_interval_s": 0.25,
+    "maximum_interval_s": 2.0,
+    "sharpness_min": 30.0,
+    "image_difference_min": 0.025,
+    "replacement_gain": 1.2,
+    "replacement_margin": 5.0,
+    "coverage_cell_m": 0.4,
+    "coverage_angle_deg": 30.0,
+    "max_per_cell": 8,
+    "max_views": 512,
+    "max_image_bytes": 16777216,
+    "max_total_bytes": 268435456
+  },
+  "rejections": {},
+  "selection_events": {
+    "new_view": 2,
+    "quality_replacement": 1
+  },
+  "coverage_cells": 2,
+  "image_bytes": 8456,
+  "views": [
+    {
+      "image": "images/front_4000000000.png",
+      "sha256": "a52dbd2c0b51564868f8abb21f9c5692210177962316e3c203dc4687b10c40f3",
+      "stamp_ns": "4000000000",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "sharpness": 115030.47753691673,
+      "interval_s": 2.0,
+      "sensor_skew_ms": [
+        0.0,
+        0.0
+      ],
+      "selection_reason": "quality_replacement",
+      "coverage_cell": [
+        0,
+        0,
+        0,
+        0,
+        6
+      ]
+    },
+    {
+      "image": "images/front_5000000000.png",
+      "sha256": "a52dbd2c0b51564868f8abb21f9c5692210177962316e3c203dc4687b10c40f3",
+      "stamp_ns": "5000000000",
+      "position": [
+        2.0,
+        0.0,
+        0.0
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "sharpness": 115030.47753691673,
+      "interval_s": 2.0,
+      "sensor_skew_ms": [
+        0.0,
+        0.0
+      ],
+      "selection_reason": "new_view",
+      "coverage_cell": [
+        5,
+        0,
+        0,
+        0,
+        6
+      ]
+    }
+  ]
+}

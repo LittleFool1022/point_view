@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <!-- 仅 Debug 构建开放 OMNI 热点及本地开发端点，不扩展 release 策略。 -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain>10.42.0.1</domain>
+        <domain>localhost</domain>
+        <domain>127.0.0.1</domain>
+        <domain>10.0.2.2</domain>
+    </domain-config>
+</network-security-config>

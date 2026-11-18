@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "main-local",
+  "description": "只允许本地 App 页面使用核心能力，不授权远程页面。",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

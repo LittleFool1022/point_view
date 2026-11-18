@@ -1,0 +1,288 @@
+:root {
+  font-family: Inter, "Microsoft YaHei", system-ui, sans-serif;
+  color: #e9f3f4;
+  background: #181714;
+  font-synthesis: none;
+  --cyan: #d77a3d;
+  --green: #65a87b;
+  --muted: #89a0a8;
+  --line: rgba(111, 213, 226, 0.16);
+  --glass: rgba(11, 17, 23, 0.88);
+}
+* { box-sizing: border-box; }
+html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+button, input, select { font: inherit; }
+button { color: inherit; }
+.app-shell { height: 100%; min-width: 320px; background: radial-gradient(circle at 50% -20%, #142833, #181714 52%); position: relative; display: grid; grid-template-rows: 64px minmax(0, 1fr); }
+.panel-glass { background: var(--glass); border: 1px solid var(--line); box-shadow: 0 12px 35px rgba(0,0,0,.4), inset 0 1px rgba(255,255,255,.025); backdrop-filter: blur(14px); }
+.topbar { grid-row: 1; z-index: 20; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 0 24px; border-bottom: 1px solid rgba(188,181,170,.11); background: linear-gradient(180deg, rgba(5,8,12,.97), rgba(7,11,15,.83)); }
+.brand { display: flex; align-items: center; gap: 11px; min-width: 210px; }
+.brand-mark { width: 38px; height: 38px; border: 1px solid var(--cyan); display: grid; place-items: center; color: var(--cyan); font-weight: 900; box-shadow: 0 0 18px rgba(215,122,61,.18); clip-path: polygon(15% 0,100% 0,100% 85%,85% 100%,0 100%,0 15%); }
+.brand div { display: flex; flex-direction: column; }
+.brand strong { letter-spacing: .18em; font-size: 14px; }
+.brand small { color: #5e7d87; font-size: 8px; letter-spacing: .12em; margin-top: 2px; }
+.mode-tabs { height: 100%; display: flex; align-items: center; gap: 30px; }
+.mode-tabs button { position: relative; background: none; border: 0; color: #72868e; height: 100%; cursor: pointer; font-size: 13px; }
+.mode-tabs button.active { color: #fff; }
+.mode-tabs button.active::after { content: ""; position: absolute; left: 10%; right: 10%; bottom: 0; height: 2px; background: var(--cyan); box-shadow: 0 0 10px var(--cyan); }
+.action-notice { position: fixed; z-index: 80; top: 76px; left: 50%; transform: translateX(-50%); max-width: min(520px, calc(100% - 32px)); padding: 9px 14px; border: 1px solid rgba(215,122,61,.4); border-radius: 5px; background: rgba(8,19,24,.96); color: #dffbff; font-size: 11px; box-shadow: 0 10px 28px rgba(0,0,0,.45); pointer-events: none; }
+.action-notice.success { border-color: rgba(101,168,123,.5); }.action-notice.error { border-color: rgba(255,77,82,.7); color: #ffdadd; }.action-notice.info { border-color: rgba(255,189,63,.55); color: #ffe7ad; }
+.connection { min-width: 350px; display: flex; justify-content: flex-end; align-items: center; gap: 10px; }
+.connection > div { display: flex; flex-direction: column; max-width: 170px; overflow: hidden; }
+.connection small { font-size: 10px; color: var(--muted); }
+.connection strong { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.connection-dot { width: 7px; height: 7px; border-radius: 50%; background: #59656a; box-shadow: 0 0 0 4px rgba(89,101,106,.1); }
+.connection-dot.connected { background: var(--green); box-shadow: 0 0 12px var(--green); }
+.connection-dot.connecting { background: #ffd23f; animation: pulse 1s infinite; }
+.connection-dot.error { background: #ff4d52; box-shadow: 0 0 12px #ff4d52; }
+.connection button, .icon-button { border: 1px solid var(--line); background: rgba(23,34,40,.8); border-radius: 5px; height: 32px; padding: 0 11px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px; }
+.icon-button { width: 32px; justify-content: center; padding: 0; }
+.workspace { grid-row: 2; min-height: 0; position: relative; overflow: hidden; }
+.point-cloud-canvas { width: 100%; height: 100%; position: relative; }.point-cloud-canvas canvas { width: 100%; height: 100%; display: block; }.selection-box { display: none; position: absolute; pointer-events: none; border: 1px solid var(--cyan); background: rgba(215,122,61,.1); box-shadow: 0 0 12px rgba(215,122,61,.25); }
+.tool-rail { position: absolute; left: 18px; top: 92px; z-index: 15; width: 62px; display: flex; flex-direction: column; padding: 7px; border-radius: 6px; }
+.tool-rail button { border: 0; border-bottom: 1px solid rgba(113,197,210,.08); background: transparent; min-height: 58px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; color: #8ca0a7; font-size: 10px; cursor: pointer; }
+.tool-rail button svg { width: 20px; }
+.tool-rail button:hover, .tool-rail button.active { color: var(--cyan); background: rgba(215,122,61,.08); }
+.tool-rail button:disabled { opacity: .28; cursor: not-allowed; }
+.status-stack { position: absolute; top: 18px; right: 18px; width: 180px; display: flex; flex-direction: column; gap: 8px; }
+.status-card { min-height: 67px; padding: 12px; display: grid; grid-template-columns: 28px 1fr; align-items: center; gap: 8px; background: linear-gradient(110deg, rgba(11,18,23,.93), rgba(14,25,30,.75)); border: 1px solid rgba(110,203,217,.13); position: relative; }
+.status-card > svg { color: #7c959e; width: 20px; }
+.status-card div { display: flex; flex-direction: column; }
+.status-card small { color: #82959c; font-size: 10px; }
+.status-card strong { font-size: 18px; margin-top: 3px; font-variant-numeric: tabular-nums; }
+.status-card strong.good { color: var(--green); }.status-card strong.warn { color: #ffbd3f; }
+.meter { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: #162126; grid-column: 1/-1; }
+.meter i { display: block; height: 100%; background: var(--green); box-shadow: 0 0 8px var(--green); }.meter.cyan i { background: var(--cyan); }
+.cloud-hud { position: absolute; left: 95px; top: 18px; display: flex; gap: 2px; border-radius: 4px; overflow: hidden; }
+.cloud-hud span { padding: 9px 12px; display: flex; align-items: center; gap: 6px; color: #aac1c6; font: 11px ui-monospace, monospace; border-right: 1px solid var(--line); }
+.cloud-hud svg { width: 14px; color: var(--cyan); }
+.view-controls { position: absolute; left: 95px; bottom: 290px; display: flex; gap: 14px; align-items: center; border-radius: 4px; padding: 7px 10px; }
+.view-controls label { display: flex; align-items: center; gap: 6px; color: #8ea6ad; }
+.view-controls select { appearance: none; background: none; border: 0; color: #d7e6e8; padding-right: 5px; outline: 0; font-size: 11px; }
+.view-controls option { background: #11191d; }.view-controls input { accent-color: var(--cyan); width: 95px; }
+.view-reference-toggle { height: 28px; display: inline-flex; align-items: center; gap: 6px; padding: 0 9px; border: 1px solid var(--line); border-radius: 4px; color: #91a7ae; background: rgba(8,15,20,.65); cursor: pointer; font-size: 10px; white-space: nowrap; transition: color .2s ease, border-color .2s ease, background .2s ease; }
+.view-reference-toggle:hover, .view-reference-toggle.active { color: var(--cyan); border-color: rgba(215,122,61,.5); background: rgba(15,34,40,.88); }
+.bottom-dock { position: absolute; z-index: 16; left: 0; right: 0; bottom: 0; height: 280px; display: grid; grid-template-columns: minmax(260px, 1fr) minmax(300px, 360px) minmax(260px, 1fr); align-items: end; gap: clamp(12px, 2vw, 28px); padding: 10px 24px 14px; pointer-events: none; background: linear-gradient(180deg, transparent, rgba(5,8,11,.82) 28%, #181714 100%); }
+.camera-panel { position: relative; grid-column: 1; justify-self: start; width: min(400px, 100%); height: 250px; pointer-events: auto; }
+.panel-visibility-button { position: absolute; z-index: 500; top: 1px; width: 28px; height: 28px; display: grid; place-items: center; padding: 0; border-radius: 50%; border: 1px solid var(--line); background: rgba(8,15,20,.96); color: #91a8af; cursor: pointer; box-shadow: 0 5px 15px rgba(0,0,0,.4); transition: color .2s ease, border-color .2s ease, background .2s ease; }
+.panel-visibility-button:hover { color: var(--cyan); border-color: rgba(215,122,61,.6); background: rgba(15,30,36,.96); }
+.panel-visibility-button svg, .panel-reveal-button svg { width: 14px; height: 14px; }
+.camera-panel > .panel-visibility-button { right: -36px; }
+.map-panel > .panel-visibility-button { left: -36px; }
+.panel-reveal-button { position: absolute; bottom: 96px; z-index: 20; width: 46px; height: 76px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; padding: 0; border: 1px solid var(--line); background: rgba(8,15,20,.94); color: #8ea5ad; pointer-events: auto; cursor: pointer; font-size: 9px; transition: color .2s ease, border-color .2s ease, background .2s ease; }
+.panel-reveal-button:hover { color: var(--cyan); border-color: rgba(215,122,61,.6); background: rgba(15,30,36,.96); }
+.reveal-camera { left: 0; border-left: 0; border-radius: 0 8px 8px 0; }
+.reveal-map { right: 0; border-right: 0; border-radius: 8px 0 0 8px; }
+.camera-stage { width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; }
+.camera-panel .camera-view { min-height: 0; width: 100%; max-width: none; height: 100%; aspect-ratio: auto; }
+.camera-view, .map-shell { height: 100%; min-height: 160px; position: relative; overflow: hidden; border-radius: 4px; }
+.camera-view img { width: 100%; height: 100%; object-fit: contain; background: #030507; }
+.camera-empty { width: 100%; height: 100%; display: flex; flex-direction: column; gap: 7px; align-items: center; justify-content: center; color: #546a72; background: repeating-linear-gradient(0deg, transparent 0 22px, rgba(75,150,163,.05) 23px), repeating-linear-gradient(90deg, transparent 0 22px, rgba(75,150,163,.05) 23px); }
+.camera-empty strong { color: #90a6ad; font-size: 11px; }.camera-empty span { width: 90%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; font-size: 8px; }
+.camera-badge { position: absolute; z-index: 4; left: 10px; top: 10px; min-width: 92px; height: 32px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; background: rgba(10,28,34,.94); color: #eafcff; padding: 0 12px; font-size: 11px; font-weight: 600; letter-spacing: .04em; border: 1px solid rgba(215,122,61,.7); border-left: 3px solid var(--cyan); border-radius: 4px; cursor: pointer; box-shadow: 0 5px 16px rgba(0,0,0,.42), 0 0 12px rgba(215,122,61,.12); transition: color .2s ease, border-color .2s ease, background .2s ease, box-shadow .2s ease, transform .2s ease; }
+.camera-badge svg { width: 13px; height: 13px; color: var(--cyan); }
+.camera-badge:hover { color: #fff; border-color: var(--cyan); background: rgba(13,42,50,.98); box-shadow: 0 6px 18px rgba(0,0,0,.48), 0 0 16px rgba(215,122,61,.26); transform: translateY(-1px); }
+.camera-badge:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.camera-max { position: absolute; top: 8px; right: 8px; }.camera-rec { position: absolute; left: 10px; bottom: 8px; font-size: 9px; color: #c7d4d7; }.camera-rec i { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #ff3948; margin-right: 5px; }
+.action-dock { position: relative; grid-column: 2; align-self: center; justify-self: center; width: min(360px, 100%); display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-template-rows: repeat(2, 64px); align-items: stretch; padding: 6px; border-radius: 6px; pointer-events: auto; }
+.action-dock button { min-width: 0; border: 0; border-right: 1px solid rgba(188,181,170,.1); border-bottom: 1px solid rgba(188,181,170,.1); background: transparent; color: #8ba0a8; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 9px; cursor: pointer; }
+.action-dock button:hover:not(:disabled) { color: var(--cyan); background: rgba(215,122,61,.06); }.action-dock button:disabled { opacity: .3; cursor: not-allowed; }.action-dock button.recording { color: #ff4050; }.action-dock svg { width: 19px; }
+.map-canvas { width: 100%; height: 100%; filter: saturate(.55) brightness(.68) contrast(1.1); }
+.map-panel { position: relative; grid-column: 3; justify-self: end; width: min(400px, 100%); height: 250px; min-width: 0; pointer-events: auto; }
+.map-panel .map-shell { width: 100%; height: 100%; }
+.map-wait { position: absolute; inset: auto 9px 8px; padding: 6px 8px; background: rgba(5,10,13,.8); border-left: 2px solid #ffbd3f; font-size: 10px; }
+.map-placeholder { display: grid; place-items: center; color: #597079; font-size: 11px; background: repeating-linear-gradient(45deg, #1d1c19 0 12px, #22211e 12px 24px); }
+.leaflet-control-zoom a { background: #22211e !important; color: #d8e8eb !important; border-color: #263940 !important; }.leaflet-control-zoom { border: 0 !important; }
+.settings-drawer { position: absolute; z-index: 30; top: 64px; right: 18px; width: min(430px, calc(100% - 36px)); padding: 15px; display: grid; gap: 10px; border-radius: 5px; }
+.settings-drawer:not(.quality-drawer) > div { display: grid; grid-template-columns: 130px 1fr; align-items: center; gap: 10px; }.settings-drawer label { font-size: 11px; color: #8ea1a8; }.settings-drawer input { min-width: 0; color: #dcebed; background: #171714; border: 1px solid var(--line); border-radius: 3px; padding: 7px 9px; outline: none; }.settings-drawer input:focus { border-color: var(--cyan); }.settings-drawer small { color: #71868d; }
+.settings-drawer .cloud-stream-options { align-items: start; }
+.cloud-stream-options fieldset { margin: 0; padding: 0; border: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 7px 10px; }
+.cloud-stream-options fieldset label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; color: #c3d6da; }
+.settings-drawer .cloud-stream-options input[type="checkbox"] { width: 14px; height: 14px; min-width: 14px; margin: 0; padding: 0; accent-color: var(--cyan); }
+.project-drawer header { display: flex; align-items: center; justify-content: space-between; }.project-drawer p { color: #71868d; text-align: center; padding: 20px; }.project-row { text-align: left; border: 1px solid var(--line); border-radius: 4px; padding: 11px; background: rgba(8,13,17,.8); display: flex; flex-direction: column; gap: 5px; cursor: pointer; }.project-row:hover { border-color: var(--cyan); }.project-row small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quality-drawer { top: 76px; width: min(520px, calc(100% - 36px)); max-height: calc(100% - 94px); display: flex; flex-direction: column; gap: 12px; overflow: hidden; }
+.quality-drawer > header { display: flex; align-items: center; justify-content: space-between; flex: 0 0 auto; }
+.quality-drawer > header > div { display: flex; align-items: center; gap: 8px; }.quality-drawer > header svg { width: 18px; color: var(--cyan); }
+.quality-profile { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex: 0 0 auto; }
+.quality-profile select { min-width: 170px; color: #dcebed; background: #171714; border: 1px solid var(--line); border-radius: 4px; padding: 7px 9px; outline: 0; }.quality-profile select:focus { border-color: var(--cyan); }.quality-profile option { background: #22211e; }
+.quality-empty { min-height: 180px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: #71868d; text-align: center; }.quality-empty strong { color: #bdd0d4; }.quality-empty.error strong { color: #ff8e92; }
+.quality-spinner { width: 24px; color: var(--cyan); animation: quality-spin 1s linear infinite; }
+.quality-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; flex: 0 0 auto; }
+.quality-summary > div { min-height: 58px; padding: 8px; border: 1px solid rgba(188,181,170,.12); background: rgba(6,12,16,.72); display: grid; grid-template-columns: 1fr auto; align-items: baseline; }
+.quality-summary span { grid-column: 1 / -1; color: #82979e; font-size: 9px; }.quality-summary strong { font: 18px ui-monospace, monospace; }.quality-summary small { margin-left: 3px; font-size: 8px; }
+.quality-summary .pass strong { color: var(--green); }.quality-summary .warn strong, .quality-summary .confidence strong { color: #ffbd3f; }.quality-summary .fail strong { color: #ff5960; }.quality-summary .unavailable strong { color: #667a81; }
+.quality-verdict { padding: 9px 11px; display: flex; flex-direction: column; gap: 4px; border-left: 3px solid #ffbd3f; background: rgba(255,189,63,.06); flex: 0 0 auto; }.quality-verdict span { color: #9cb0b6; font-size: 9px; line-height: 1.5; }.quality-verdict.pass { border-color: var(--green); }.quality-verdict.fail { border-color: #ff5960; }
+.quality-source { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 0 0 auto; }.quality-source span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 10px; }
+.quality-metrics { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; padding-right: 4px; }
+.quality-metrics article { padding: 8px 9px; border: 1px solid rgba(188,181,170,.1); background: rgba(5,10,14,.55); display: flex; flex-direction: column; gap: 3px; }
+.quality-metrics article > div { display: flex; justify-content: space-between; align-items: center; gap: 10px; }.quality-metrics article strong { font-size: 10px; }.quality-metrics article span { font: 10px ui-monospace, monospace; color: #dbe9eb; }.quality-metrics article small { font-size: 8px; line-height: 1.35; }
+.quality-metrics article.pass { border-left: 2px solid var(--green); }.quality-metrics article.warn { border-left: 2px solid #ffbd3f; }.quality-metrics article.fail { border-left: 2px solid #ff5960; }.quality-metrics article.unavailable { opacity: .62; }
+.quality-drawer > footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex: 0 0 auto; }.quality-drawer > footer > small { line-height: 1.4; }
+.quality-export { flex: 0 0 auto; height: 34px; display: inline-flex; align-items: center; gap: 6px; padding: 0 11px; border: 1px solid rgba(215,122,61,.45); border-radius: 4px; color: #dffbff; background: rgba(11,30,36,.92); cursor: pointer; font-size: 10px; }.quality-export:hover { color: var(--cyan); border-color: var(--cyan); }.quality-export svg { width: 15px; }
+.cad-drawer { position: absolute; z-index: 35; top: 76px; right: 18px; width: min(560px, calc(100% - 36px)); max-height: calc(100% - 94px); display: flex; flex-direction: column; gap: 12px; overflow-y: auto; padding: 15px; border-radius: 5px; }
+.cad-drawer > header { display: flex; align-items: center; justify-content: space-between; }.cad-drawer > header > div { display: flex; align-items: center; gap: 8px; }.cad-drawer > header svg { width: 18px; color: var(--cyan); }.cad-drawer > header small { color: #71868d; font-size: 9px; margin-left: 4px; }
+.cad-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 2px; }.cad-toolbar label { color: #8ea1a8; font-size: 10px; display: inline-flex; align-items: center; gap: 7px; }.cad-toolbar select { color: #dcebed; background: #171714; border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; outline: 0; font-size: 10px; }.cad-toolbar option { background: #22211e; }.cad-source { color: #82979e; font: 10px ui-monospace, monospace; display: inline-flex; align-items: center; gap: 5px; }
+.cad-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }.cad-metrics > div { min-height: 60px; padding: 9px; border: 1px solid rgba(188,181,170,.12); background: rgba(6,12,16,.72); display: flex; flex-direction: column; gap: 5px; }.cad-metrics span { color: #82979e; font-size: 9px; }.cad-metrics strong { color: #dbe9eb; font: 15px ui-monospace, monospace; white-space: nowrap; }.cad-metrics small { color: #8ea6ad; font-size: 8px; margin-left: 3px; }
+.cad-card { padding: 10px; border: 1px solid rgba(188,181,170,.11); background: rgba(5,10,14,.55); display: flex; flex-direction: column; gap: 8px; }.cad-card-title { display: flex; align-items: center; gap: 7px; }.cad-card-title svg { color: var(--cyan); }.cad-card-title strong { font-size: 11px; }.cad-card-title small { color: #71868d; font-size: 9px; }.cad-card p { margin: 0; color: #82979e; font-size: 9px; line-height: 1.5; }.cad-inline { display: flex; align-items: center; gap: 7px; }.cad-inline > label { color: #8ea1a8; font-size: 10px; display: inline-flex; align-items: center; gap: 5px; }.cad-inline input { min-width: 0; flex: 1; color: #dcebed; background: #171714; border: 1px solid var(--line); border-radius: 3px; padding: 7px 8px; outline: 0; font-size: 10px; }.cad-inline input:focus { border-color: var(--cyan); }.cad-inline input[type=number] { width: 66px; flex: 0 0 66px; }.cad-action, .cad-icon-action, .cad-exports button { height: 30px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; border: 1px solid var(--line); border-radius: 4px; color: #c7dde1; background: rgba(11,26,31,.88); cursor: pointer; font-size: 10px; padding: 0 9px; white-space: nowrap; }.cad-action:hover:not(:disabled), .cad-icon-action:hover:not(:disabled), .cad-exports button:hover:not(:disabled) { color: var(--cyan); border-color: rgba(215,122,61,.6); }.cad-action:disabled, .cad-icon-action:disabled, .cad-exports button:disabled { opacity: .35; cursor: not-allowed; }.cad-icon-action { width: 32px; padding: 0; flex: 0 0 32px; }.cad-annotations { max-height: 78px; overflow-y: auto; list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px; }.cad-annotations li { display: flex; justify-content: space-between; align-items: center; padding: 5px 7px; border-left: 2px solid var(--cyan); background: rgba(10,24,29,.65); color: #c8dde0; font-size: 10px; }.cad-annotations button { border: 0; background: none; color: #789098; cursor: pointer; }.cad-annotations button:hover { color: #ff6970; }.cad-exports { display: flex; gap: 7px; }.cad-exports button { flex: 1; height: 34px; }.cad-exports .cad-export-primary { color: #dffbff; border-color: rgba(215,122,61,.55); background: rgba(11,30,36,.92); }.cad-disclaimer { color: #71868d; font-size: 9px; line-height: 1.5; }
+@keyframes quality-spin { to { transform: rotate(360deg); } }
+.bottom-dock.camera-full { z-index: 100; height: 100%; background: #000; pointer-events: auto; }
+.camera-full .panel-visibility-button, .camera-full .action-dock, .camera-full .map-panel, .camera-full .panel-reveal-button { display: none; }
+.camera-full .camera-view.maximized { position: fixed; z-index: 120; inset: 0; width: 100%; max-width: none; height: 100%; aspect-ratio: auto !important; border: 0; border-radius: 0; background: #000; }
+.camera-full .camera-view:not(.maximized) { visibility: hidden; }
+.camera-full .camera-view.maximized .camera-max { position: fixed; z-index: 140; top: 20px; right: 20px; width: auto; min-width: 108px; padding: 0 13px; color: #e9f9fb; background: rgba(8,15,20,.88); border-color: rgba(215,122,61,.45); box-shadow: 0 8px 24px rgba(0,0,0,.45); }
+.camera-full .camera-view.maximized .camera-max:hover { color: var(--cyan); border-color: var(--cyan); background: rgba(13,28,34,.96); }
+.camera-full .camera-view.maximized .camera-max span { display: inline; font-size: 11px; }
+@keyframes pulse { 50% { opacity: .35; } }
+
+.cad-check { display: inline-flex; align-items: center; gap: 6px; color: #8ea1a8; font-size: 10px; }.cad-check input { accent-color: var(--cyan); }.cad-inline > span { color: #8ea1a8; font-size: 10px; }
+
+@media (max-width: 1050px) {
+  .app-shell { grid-template-rows: 60px minmax(0, 1fr); }
+  .mode-tabs { display: none; }.connection { min-width: 0; }.connection > div { display: none; }
+  .bottom-dock { height: 230px; grid-template-columns: minmax(0, 1fr) minmax(280px, 300px) minmax(0, 1fr); gap: 8px; padding: 8px; }
+  .camera-panel { width: 100%; height: 214px; }.map-panel { width: 100%; height: 214px; }
+  .action-dock { width: 100%; }
+  .view-controls { bottom: 240px; }
+  .status-stack { width: 150px; }.status-card { min-height: 54px; padding: 8px; }.status-card strong { font-size: 14px; }
+}
+
+@media (max-width: 700px) {
+  .app-shell { grid-template-rows: 54px minmax(0, 1fr); }
+  .topbar { padding: 0 10px; }.brand { min-width: 0; }.brand small { display: none; }.brand-mark { width: 32px; height: 32px; }.connection button:not(.icon-button) { font-size: 0; width: 34px; padding: 0; justify-content: center; }
+  .tool-rail { left: 5px; top: 62px; width: 48px; padding: 3px; }.tool-rail button { min-height: 47px; }.tool-rail button span { display: none; }
+  .status-stack { right: 5px; top: 6px; width: 112px; }.status-card { min-height: 43px; grid-template-columns: 18px 1fr; gap: 4px; }.status-card:nth-child(1), .status-card:nth-child(4) { display: none; }.status-card small { font-size: 8px; }.status-card strong { font-size: 12px; }.status-card svg { width: 15px; }
+  .cloud-hud { left: 58px; top: 6px; }.cloud-hud span { padding: 6px; font-size: 8px; }.cloud-hud span:nth-child(3) { display: none; }
+  .view-controls { left: 58px; bottom: 250px; padding: 4px; }.view-controls label:nth-child(2) { display: none; }
+  .bottom-dock { grid-template-columns: minmax(0, 1fr) 280px minmax(0, 1fr); gap: 5px; padding-inline: 5px; }
+  .camera-panel { width: 100%; }.map-panel { width: 100%; }.camera-view { min-height: 0; }.action-dock { width: 280px; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(2, 1fr); height: 112px; }.action-dock button { min-width: 0; }
+}
+
+/* CAD 标准出图工作区：Canvas 预览优先，参数与警告渐进展开。 */
+.cad-workspace { width: min(1180px, calc(100% - 36px)); height: calc(100% - 94px); max-height: none; overflow: hidden; gap: 10px; }
+.cad-workspace button:focus-visible, .cad-workspace input:focus-visible, .cad-workspace select:focus-visible, .cad-workspace summary:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.cad-workspace-header { display: grid !important; grid-template-columns: minmax(0, 1fr) auto auto; gap: 12px; align-items: center; }
+.cad-workspace-header > div:first-child { min-width: 0; display: flex; align-items: center; gap: 9px; }
+.cad-workspace-header > div:first-child > span { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.cad-workspace-header > div:first-child small { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cad-workflow-badge { min-height: 30px; display: inline-flex; align-items: center; gap: 6px; padding: 0 9px; border: 1px solid rgba(188,181,170,.18); border-radius: 999px; color: #9db2b8; background: rgba(5,13,17,.72); font-size: 9px; white-space: nowrap; }
+.cad-workflow-badge svg { width: 13px !important; height: 13px; }
+.cad-workflow-badge[data-status="preview-ready"], .cad-workflow-badge[data-status="completed"] { color: var(--green); border-color: rgba(101,168,123,.3); }
+.cad-workflow-badge[data-status="preparing"], .cad-workflow-badge[data-status="exporting"] { color: var(--cyan); border-color: rgba(215,122,61,.38); }
+.cad-workspace-body { min-height: 0; flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 350px; gap: 10px; }
+.cad-preview-pane { min-width: 0; min-height: 0; border: 1px solid rgba(188,181,170,.14); background: #071015; overflow: hidden; }
+.cad-preview-empty { width: 100%; height: 100%; min-height: 420px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; color: #70868d; text-align: center; background: radial-gradient(circle at 50% 45%, rgba(215,122,61,.06), transparent 42%), repeating-linear-gradient(0deg, transparent 0 39px, rgba(188,181,170,.035) 40px), repeating-linear-gradient(90deg, transparent 0 39px, rgba(188,181,170,.035) 40px); }
+.cad-preview-empty svg { width: 38px; height: 38px; color: #497680; }
+.cad-preview-empty strong { color: #b8cdd1; font-size: 13px; }.cad-preview-empty span { max-width: 320px; font-size: 10px; line-height: 1.55; }
+.cad-preview-shell { width: 100%; height: 100%; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 205px; }
+.cad-preview-stage { min-width: 0; min-height: 0; position: relative; overflow: hidden; cursor: grab; touch-action: none; }
+.cad-preview-stage:active { cursor: grabbing; }.cad-preview-stage canvas { display: block; width: 100%; height: 100%; }
+.cad-preview-toolbar { position: absolute; z-index: 3; left: 10px; top: 10px; display: flex; align-items: center; gap: 4px; padding: 4px; border: 1px solid rgba(188,181,170,.18); border-radius: 5px; background: rgba(6,14,18,.9); box-shadow: 0 8px 18px rgba(0,0,0,.3); }
+.cad-preview-toolbar button, .cad-layer-panel button, .cad-annotation-entry button { min-width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 0 8px; border: 1px solid transparent; border-radius: 3px; color: #8299a0; background: transparent; cursor: pointer; transition: color .2s ease, border-color .2s ease, background .2s ease; }
+.cad-preview-toolbar button:hover, .cad-preview-toolbar button.active, .cad-layer-panel button:hover { color: var(--cyan); border-color: rgba(215,122,61,.3); background: rgba(215,122,61,.07); }
+.cad-preview-toolbar button svg, .cad-layer-panel button svg { width: 14px; height: 14px; }.cad-preview-toolbar > span { min-width: 40px; color: #769098; text-align: center; font: 9px ui-monospace, monospace; }
+.cad-view-switch { display: flex; margin-right: 2px; border-right: 1px solid var(--line); padding-right: 4px; }.cad-view-switch button { min-width: 43px; font-size: 9px; }
+.cad-preview-axis { position: absolute; z-index: 2; right: 10px; bottom: 10px; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; color: #5d7981; font: 9px ui-monospace, monospace; pointer-events: none; }
+.cad-preview-stale { position: absolute; z-index: 4; inset: 54px 12px auto; padding: 8px 10px; border: 1px solid rgba(243,163,93,.45); border-left: 3px solid #f3a35d; color: #ffd0a8; background: rgba(34,21,13,.92); font-size: 10px; text-align: center; }
+.cad-entity-inspector { position: absolute; z-index: 3; left: 10px; bottom: 10px; max-width: 72%; display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-left: 2px solid var(--cyan); background: rgba(5,13,17,.91); box-shadow: 0 8px 18px rgba(0,0,0,.32); }
+.cad-entity-inspector strong { font: 10px ui-monospace, monospace; color: #e6f7f9; }.cad-entity-inspector span { color: var(--cyan); font-size: 9px; }.cad-entity-inspector small { color: #879da4; font-size: 9px; }
+.cad-layer-panel { min-height: 0; display: flex; flex-direction: column; border-left: 1px solid rgba(188,181,170,.13); background: rgba(7,14,18,.96); }
+.cad-layer-panel > header { min-height: 48px; display: flex; align-items: center; justify-content: space-between; padding: 7px 8px 7px 11px; border-bottom: 1px solid rgba(188,181,170,.1); }
+.cad-layer-panel > header > div { display: flex; flex-direction: column; gap: 2px; }.cad-layer-panel > header strong { font-size: 10px; }.cad-layer-panel > header small { color: #6f858c; font-size: 8px; }
+.cad-layer-quick { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 6px; border-bottom: 1px solid rgba(188,181,170,.08); }.cad-layer-quick button { min-width: 0; padding: 0 4px; font-size: 8px; }
+.cad-layer-list { min-height: 0; overflow-y: auto; padding: 4px 6px 8px; }.cad-layer-list label { min-height: 43px; display: grid; grid-template-columns: 16px 26px 1fr; align-items: center; gap: 5px; padding: 3px 2px; cursor: pointer; transition: opacity .2s ease, background .2s ease; }.cad-layer-list label:hover { background: rgba(215,122,61,.035); }
+.cad-layer-list label.muted { opacity: .38; }.cad-layer-list input { width: 13px; height: 13px; margin: 0; accent-color: var(--cyan); }.cad-layer-list i { width: 22px; border-top-width: 2px; }
+.cad-layer-list span { min-width: 0; display: flex; flex-direction: column; gap: 2px; }.cad-layer-list strong { overflow: hidden; text-overflow: ellipsis; font: 8px ui-monospace, monospace; color: #b9cbd0; }.cad-layer-list small { color: #688087; font-size: 7px; }
+.cad-parameter-panel { min-width: 0; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 4px; }
+.cad-parameter-panel .cad-toolbar { padding: 0 0 2px; }.cad-parameter-panel .cad-metrics > div { min-height: 54px; padding: 7px; }.cad-parameter-panel .cad-metrics strong { font-size: 13px; }
+.cad-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }.cad-form-grid label { min-width: 0; display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 5px; color: #82979e; font-size: 9px; }
+.cad-form-grid label > input, .cad-form-grid label > select { grid-column: 1; min-width: 0; height: 30px; padding: 0 7px; border: 1px solid var(--line); border-radius: 3px; color: #dcebed; background: #171714; outline: 0; }.cad-form-grid label > span { grid-column: 2; grid-row: 2; color: #698087; font-size: 8px; }
+.cad-advanced { padding: 0; }.cad-advanced[open] { padding: 10px; }.cad-advanced summary { min-height: 38px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 10px; cursor: pointer; list-style: none; }.cad-advanced[open] summary { margin: -6px -6px 2px; }.cad-advanced summary::-webkit-details-marker { display: none; }
+.cad-advanced summary > span { display: inline-flex; align-items: center; gap: 7px; font-size: 10px; }.cad-advanced summary svg { width: 14px; color: var(--cyan); }.cad-advanced summary small { color: #6f858c; font-size: 8px; }
+.cad-advanced .cad-action { min-height: 34px; }.cad-annotation-entry { display: grid; grid-template-columns: 90px 1fr 36px; gap: 5px; }.cad-annotation-entry select, .cad-annotation-entry input { min-width: 0; height: 34px; padding: 0 7px; color: #dcebed; background: #171714; border: 1px solid var(--line); border-radius: 3px; outline: 0; }.cad-annotation-entry button { width: 36px; height: 34px; border-color: var(--line); }
+.cad-annotations li > span { min-width: 0; display: flex; align-items: center; gap: 6px; }.cad-annotations li > span small { padding: 2px 4px; color: var(--cyan); border: 1px solid rgba(215,122,61,.18); font: 7px ui-monospace, monospace; text-transform: uppercase; }
+.cad-warning-panel { border: 1px solid rgba(243,163,93,.18); background: rgba(25,17,10,.38); }.cad-warning-panel > header { min-height: 36px; display: flex; align-items: center; justify-content: space-between; padding: 0 9px; border-bottom: 1px solid rgba(243,163,93,.12); }.cad-warning-panel > header strong { font-size: 10px; }.cad-warning-panel > header span { color: #f3a35d; font-size: 8px; }
+.cad-warning-panel > div { display: grid; grid-template-columns: 17px 1fr; gap: 6px; padding: 7px 9px; border-bottom: 1px solid rgba(243,163,93,.07); }.cad-warning-panel > div:last-child { border: 0; }.cad-warning-panel > div svg { width: 13px; color: #759099; }.cad-warning-panel > div[data-severity="warning"] svg { color: #f3a35d; }.cad-warning-panel > div span { min-width: 0; display: flex; flex-direction: column; gap: 2px; }.cad-warning-panel > div strong { font: 8px ui-monospace, monospace; color: #c8d8db; }.cad-warning-panel > div small { color: #82979e; font-size: 8px; line-height: 1.4; }
+.cad-workflow-error { display: flex; align-items: flex-start; gap: 7px; padding: 9px; border-left: 3px solid #ff5960; color: #ffc0c2; background: rgba(50,13,16,.55); font-size: 9px; line-height: 1.45; }.cad-workflow-error svg { flex: 0 0 auto; width: 14px; }
+.cad-file-list { border: 1px solid rgba(101,168,123,.18); background: rgba(9,31,18,.35); }.cad-file-list header { min-height: 34px; display: flex; align-items: center; gap: 7px; padding: 0 9px; border-bottom: 1px solid rgba(101,168,123,.12); }.cad-file-list header svg { width: 14px; color: var(--green); }.cad-file-list header strong { font-size: 10px; }.cad-file-list > div { display: flex; justify-content: space-between; gap: 8px; padding: 6px 9px; color: #b7cbc0; font: 8px ui-monospace, monospace; }.cad-file-list > div small { color: #759380; }
+.cad-parameter-panel .cad-exports { position: sticky; bottom: 0; z-index: 2; padding: 7px 0 1px; background: linear-gradient(180deg, transparent, rgba(11,17,23,.98) 25%); }.cad-parameter-panel .cad-exports button { min-height: 40px; }
+.cad-spin { animation: quality-spin 1s linear infinite; }
+
+@media (max-width: 1020px) {
+  .cad-workspace { overflow-y: auto; }
+  .cad-workspace-body { display: flex; flex-direction: column; overflow: visible; }
+  .cad-preview-pane { flex: 0 0 500px; }.cad-parameter-panel { overflow: visible; padding-right: 0; }
+}
+
+@media (max-width: 700px) {
+  .cad-workspace { top: 60px; right: 5px; width: calc(100% - 10px); height: calc(100% - 65px); padding: 10px; }
+  .cad-workspace-header { grid-template-columns: minmax(0, 1fr) auto; }.cad-workflow-badge { display: none; }
+  .cad-preview-pane { flex-basis: 520px; }.cad-preview-shell { grid-template-columns: 1fr; grid-template-rows: minmax(330px, 1fr) 170px; }.cad-layer-panel { border-left: 0; border-top: 1px solid rgba(188,181,170,.13); }.cad-layer-list { display: grid; grid-template-columns: 1fr 1fr; }.cad-layer-list label { min-height: 38px; }
+  .cad-form-grid { grid-template-columns: 1fr; }.cad-exports { flex-direction: column; }.cad-parameter-panel .cad-exports button { flex: none; width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cad-workspace *, .cad-workspace *::before, .cad-workspace *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
+}
+
+/* CAD 精简工作区：图纸为主，图层按需浮出，参数按任务分组。 */
+.cad-workspace { top: 74px; right: 16px; width: min(1500px, calc(100% - 32px)); height: calc(100% - 88px); padding: 12px; gap: 9px; border-radius: 8px; background: rgba(8,14,19,.96); }
+.cad-workspace-header { min-height: 42px; padding: 0 2px; }
+.cad-workspace-header > div:first-child > span > strong { font-size: 15px; letter-spacing: -.01em; }
+.cad-workspace-header > div:first-child small { color: #657b82; font-size: 8px; letter-spacing: .03em; }
+.cad-workspace-body { grid-template-columns: minmax(0, 1fr) 326px; gap: 8px; }
+.cad-preview-pane { border-color: rgba(188,181,170,.12); border-radius: 6px; box-shadow: inset 0 1px rgba(255,255,255,.018); }
+.cad-preview-shell { position: relative; display: block; }
+.cad-preview-stage { width: 100%; height: 100%; }
+.cad-preview-toolbar { left: 12px; top: 12px; border-radius: 6px; background: rgba(6,14,18,.86); backdrop-filter: blur(10px); }
+.cad-layer-trigger { position: absolute; z-index: 5; top: 12px; right: 12px; height: 34px; display: inline-flex; align-items: center; gap: 6px; padding: 0 9px; border: 1px solid rgba(188,181,170,.18); border-radius: 6px; color: #9ab0b6; background: rgba(6,14,18,.86); box-shadow: 0 8px 18px rgba(0,0,0,.28); cursor: pointer; font-size: 9px; backdrop-filter: blur(10px); }
+.cad-layer-trigger:hover, .cad-layer-trigger[aria-expanded="true"] { color: var(--cyan); border-color: rgba(215,122,61,.38); background: rgba(11,28,34,.94); }
+.cad-layer-trigger svg { width: 14px; height: 14px; }.cad-layer-trigger small { color: #668088; font: 8px ui-monospace, monospace; }
+.cad-layer-panel { position: absolute; z-index: 7; top: 54px; right: 12px; bottom: 12px; width: 224px; min-height: 0; border: 1px solid rgba(188,181,170,.18); border-radius: 7px; background: rgba(7,14,18,.97); box-shadow: 0 18px 48px rgba(0,0,0,.5); overflow: hidden; backdrop-filter: blur(12px); }
+.cad-layer-panel > header { min-height: 48px; padding-left: 12px; }.cad-layer-actions { display: flex; align-items: center; gap: 1px; }
+.cad-layer-list label { min-height: 40px; padding-inline: 4px; }.cad-layer-list strong { font-size: 7.5px; }.cad-layer-list small { font-size: 7px; }
+
+.cad-parameter-panel { overflow: hidden; padding: 0; gap: 0; border: 1px solid rgba(188,181,170,.12); border-radius: 6px; background: rgba(7,13,17,.82); }
+.cad-inspector-head { flex: 0 0 auto; display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 10px 10px 8px; border-bottom: 1px solid rgba(188,181,170,.09); }
+.cad-projection-tabs { min-width: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; padding: 3px; border-radius: 5px; background: rgba(3,8,11,.78); }
+.cad-projection-tabs button { min-width: 0; height: 32px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; border: 1px solid transparent; border-radius: 4px; color: #718990; background: transparent; cursor: pointer; font-size: 9px; }
+.cad-projection-tabs button small { color: #536b72; font: 7px ui-monospace, monospace; }.cad-projection-tabs button:hover { color: #b8d0d4; }.cad-projection-tabs button.active { color: #e9fbfd; border-color: rgba(215,122,61,.34); background: rgba(215,122,61,.09); }.cad-projection-tabs button.active small { color: var(--cyan); }
+.cad-projection-select-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.cad-inspector-head .cad-source { align-self: center; max-width: 92px; justify-content: flex-end; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 8px; }
+.cad-inspector-head .cad-source svg { flex: 0 0 auto; color: #6d878e; }
+.cad-parameter-panel .cad-metrics { grid-column: 1 / -1; gap: 4px; }
+.cad-parameter-panel .cad-metrics > div { min-height: 45px; padding: 7px 8px; border-color: rgba(188,181,170,.08); background: rgba(3,9,12,.52); gap: 3px; }
+.cad-parameter-panel .cad-metrics span { font-size: 8px; }.cad-parameter-panel .cad-metrics strong { font-size: 12px; }.cad-parameter-panel .cad-metrics small { font-size: 7px; }
+.cad-inspector-tabs { flex: 0 0 auto; display: grid; grid-template-columns: repeat(3, 1fr); padding: 0 8px; border-bottom: 1px solid rgba(188,181,170,.1); }
+.cad-inspector-tabs button { position: relative; min-width: 0; height: 40px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; border: 0; border-bottom: 2px solid transparent; color: #70868d; background: transparent; cursor: pointer; font-size: 9px; }
+.cad-inspector-tabs button svg { width: 13px; height: 13px; }.cad-inspector-tabs button:hover { color: #bdd0d4; }.cad-inspector-tabs button.active { color: #e7f8fa; border-bottom-color: var(--cyan); }
+.cad-inspector-tabs button small { min-width: 16px; height: 16px; display: grid; place-items: center; border-radius: 999px; color: #ffcf9f; background: rgba(243,163,93,.14); font: 7px ui-monospace, monospace; }
+.cad-inspector-content { min-height: 0; flex: 1 1 auto; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 10px; scrollbar-width: thin; scrollbar-color: #29434b transparent; }
+.cad-inspector-content .cad-card { padding: 11px; border-radius: 5px; background: rgba(5,11,14,.5); }.cad-inspector-content .cad-card-title { padding-bottom: 2px; }.cad-inspector-content .cad-card-title strong { font-size: 10px; }.cad-inspector-content .cad-card-title small { margin-left: auto; }
+.cad-inspector-content .cad-form-grid { gap: 9px 7px; }.cad-inspector-content .cad-form-grid label { font-size: 8px; }.cad-inspector-content .cad-form-grid label > input, .cad-inspector-content .cad-form-grid label > select { height: 33px; margin-top: 2px; }
+.cad-mode-summary { display: grid; grid-template-columns: 26px 1fr; gap: 7px; align-items: center; padding: 9px 10px; border: 1px solid rgba(101,168,123,.12); border-left: 2px solid rgba(101,168,123,.58); border-radius: 4px; background: rgba(11,30,18,.3); }
+.cad-mode-summary > svg { width: 16px; color: var(--green); }.cad-mode-summary > span { min-width: 0; display: flex; flex-direction: column; gap: 2px; }.cad-mode-summary strong { color: #bddbc7; font-size: 9px; }.cad-mode-summary small { color: #718b79; font-size: 8px; }
+.cad-evidence-card > p { margin-bottom: 2px; }.cad-check-list { display: flex; flex-direction: column; gap: 4px; }
+.cad-check-list .cad-check { min-height: 42px; padding: 6px 7px; border: 1px solid rgba(188,181,170,.08); border-radius: 4px; background: rgba(4,10,13,.52); align-items: flex-start; }
+.cad-check-list .cad-check input { flex: 0 0 auto; margin-top: 2px; }.cad-check-list .cad-check > span { display: flex; flex-direction: column; gap: 2px; }.cad-check-list .cad-check strong { color: #b6cbd0; font-size: 9px; font-weight: 500; }.cad-check-list .cad-check small { color: #627a81; font-size: 7.5px; }
+.cad-evidence-card .cad-action { width: 100%; margin-top: 2px; }
+.cad-review-card .cad-annotation-entry { grid-template-columns: 78px 1fr 34px; }.cad-review-card .cad-annotation-entry select, .cad-review-card .cad-annotation-entry input, .cad-review-card .cad-annotation-entry button { height: 32px; }
+.cad-review-card .cad-annotations { max-height: 120px; }
+.cad-warning-panel { border-radius: 5px; overflow: hidden; }.cad-warning-panel > div { padding: 8px 9px; }
+.cad-process-notes { border-top: 1px solid rgba(188,181,170,.08); }.cad-process-notes summary { min-height: 34px; display: flex; align-items: center; justify-content: space-between; padding: 0 9px; color: #71878e; cursor: pointer; font-size: 8px; list-style: none; }.cad-process-notes summary::-webkit-details-marker { display: none; }.cad-process-notes summary small { font: 7px ui-monospace, monospace; }
+.cad-process-notes > div { display: grid; grid-template-columns: 17px 1fr; gap: 6px; padding: 7px 9px; border-top: 1px solid rgba(188,181,170,.05); }.cad-process-notes > div svg { width: 13px; color: #68848b; }.cad-process-notes > div span { display: flex; flex-direction: column; gap: 2px; }.cad-process-notes > div strong { color: #9eb1b6; font: 8px ui-monospace, monospace; }.cad-process-notes > div small { color: #6c8289; font-size: 8px; line-height: 1.4; }
+.cad-inspector-footer { flex: 0 0 auto; padding: 8px 10px 9px; border-top: 1px solid rgba(188,181,170,.1); background: rgba(6,12,16,.96); }
+.cad-inspector-footer .cad-exports { gap: 6px; }.cad-inspector-footer .cad-exports button { height: 38px; border-radius: 5px; }.cad-inspector-footer .cad-disclaimer { display: block; margin-top: 6px; text-align: center; color: #526a71; font-size: 7px; letter-spacing: .02em; }
+
+@media (max-width: 1120px) {
+  .cad-workspace { overflow: hidden; }
+  .cad-workspace-body { display: grid; grid-template-columns: minmax(0, 1fr) 306px; overflow: hidden; }
+  .cad-preview-pane { min-height: 0; }.cad-parameter-panel { overflow: hidden; }
+}
+
+@media (max-width: 760px) {
+  .cad-workspace { top: 58px; right: 5px; width: calc(100% - 10px); height: calc(100% - 63px); padding: 8px; }
+  .cad-workspace-header { grid-template-columns: minmax(0, 1fr) auto; }.cad-workflow-badge { display: none; }
+  .cad-workspace-body { display: flex; flex-direction: column; overflow-y: auto; }
+  .cad-preview-pane { flex: 0 0 440px; }.cad-parameter-panel { flex: 0 0 500px; overflow: hidden; }
+  .cad-layer-panel { left: 12px; width: auto; }.cad-form-grid { grid-template-columns: 1fr 1fr; }.cad-exports { flex-direction: row; }
+}

@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" role="img" aria-labelledby="title desc">
+  <title id="title">物体资产制作台工作进展</title>
+  <desc id="desc">截至2026年9月8日，基础制作能力已有源码，素材与恢复功能待验证，下一步完成本机验证、纸箱结构及原图贴图，之后进行OMNI实机联调。日历工期待评估。</desc>
+  <defs>
+    <style>
+      text { font-family: 'Noto Sans CJK SC','Microsoft YaHei','PingFang SC',sans-serif; }
+      .title { font-size: 38px; font-weight: 700; fill: #14253d; }
+      .section { font-size: 23px; font-weight: 700; fill: #14253d; }
+      .heading { font-size: 23px; font-weight: 700; fill: #14253d; }
+      .body { font-size: 20px; fill: #42536a; }
+      .small { font-size: 17px; fill: #68788d; }
+      .tag { font-size: 17px; font-weight: 700; }
+      .step { font-size: 20px; font-weight: 700; fill: #14253d; }
+    </style>
+  </defs>
+  <rect width="1440" height="900" fill="#f3f6fa"/>
+  <rect x="0" y="0" width="1440" height="8" fill="#2563eb"/>
+
+  <text x="64" y="78" class="title">物体资产制作台 · 工作进展</text>
+  <text x="1376" y="76" text-anchor="end" class="small">汇报日期  2026.09.08</text>
+  <text x="64" y="119" class="body">目标：扫描定形、照片还原外观，交付可编辑的 GLB 三维资产</text>
+
+  <rect x="64" y="148" width="1312" height="70" rx="12" fill="#e8efff"/>
+  <text x="88" y="191" font-size="21" font-weight="700" fill="#244a8d">职责分工</text>
+  <text x="211" y="191" class="body">OMNI 负责扫描与素材采集</text>
+  <text x="527" y="191" font-size="24" fill="#6685bd">→</text>
+  <text x="577" y="191" class="body">本机制作台负责编辑与资产交付</text>
+  <text x="1348" y="191" text-anchor="end" class="small">3DGS 空间留存由其他同事负责</text>
+
+  <text x="64" y="263" class="section">当前进度</text>
+
+  <rect x="64" y="284" width="422" height="205" rx="14" fill="#ffffff" stroke="#dce4ee"/>
+  <rect x="86" y="305" width="112" height="30" rx="15" fill="#e7f4ee"/>
+  <text x="142" y="326" text-anchor="middle" class="tag" fill="#287354">已有基础</text>
+  <text x="88" y="372" class="heading">选物 → 成形 → 导出</text>
+  <text x="88" y="412" class="body">点云选取、网格生成、原貌对照</text>
+  <text x="88" y="445" class="body">可导出 GLB，当前使用扫描颜色</text>
+  <text x="88" y="475" class="small">尚未接入原图纹理</text>
+
+  <rect x="509" y="284" width="422" height="205" rx="14" fill="#ffffff" stroke="#dce4ee"/>
+  <rect x="531" y="305" width="158" height="30" rx="15" fill="#edf2ff"/>
+  <text x="610" y="326" text-anchor="middle" class="tag" fill="#315db1">源码已写 · 待验证</text>
+  <text x="533" y="372" class="heading">素材与编辑成果保留</text>
+  <text x="533" y="412" class="body">原图、标定、位姿随作品保存</text>
+  <text x="533" y="445" class="body">自动草稿、退出保护、工程恢复</text>
+  <text x="533" y="475" class="small">新增流程尚未完成运行验证</text>
+
+  <rect x="954" y="284" width="422" height="205" rx="14" fill="#ffffff" stroke="#dce4ee"/>
+  <rect x="976" y="305" width="112" height="30" rx="15" fill="#fff0df"/>
+  <text x="1032" y="326" text-anchor="middle" class="tag" fill="#a5651f">待开发</text>
+  <text x="978" y="372" class="heading">高保真制作能力</text>
+  <text x="978" y="412" class="body">纸箱结构拟合、实测尺寸约束</text>
+  <text x="978" y="445" class="body">按面原图贴图、纹理 GLB 交付</text>
+  <text x="978" y="475" class="small">先完成一个纸箱样例的全流程</text>
+
+  <text x="64" y="537" class="section">推进时间线</text>
+  <text x="1376" y="537" text-anchor="end" class="small">按阶段推进；具体工期待评估</text>
+  <line x1="91" y1="578" x2="1125" y2="578" stroke="#cfdaea" stroke-width="4"/>
+  <circle cx="91" cy="578" r="13" fill="#2563eb"/>
+  <circle cx="436" cy="578" r="11" fill="#ffffff" stroke="#8da8ce" stroke-width="3"/>
+  <circle cx="781" cy="578" r="11" fill="#ffffff" stroke="#8da8ce" stroke-width="3"/>
+  <circle cx="1125" cy="578" r="11" fill="#ffffff" stroke="#8da8ce" stroke-width="3"/>
+  <text x="64" y="625" class="step">当前｜本机收敛</text>
+  <text x="64" y="659" class="body">核对坐标、单位与恢复逻辑</text>
+  <text x="64" y="688" class="small">出口：本机验证通过</text>
+  <text x="409" y="625" class="step">下一步｜纸箱定形</text>
+  <text x="409" y="659" class="body">拟合平面，约束方向与尺寸</text>
+  <text x="409" y="688" class="small">出口：结构可调整、可对照</text>
+  <text x="754" y="625" class="step">随后｜照片贴图</text>
+  <text x="754" y="659" class="body">单面验证后扩展多面纹理</text>
+  <text x="754" y="688" class="small">出口：带纹理 GLB 样例</text>
+  <text x="1098" y="625" class="step">最后｜实机联调</text>
+  <text x="1098" y="659" class="body">接通 OMNI 素材同步输出</text>
+  <text x="1098" y="688" class="small">出口：真实采集验收通过</text>
+
+  <rect x="64" y="725" width="1312" height="106" rx="12" fill="#fff4e8"/>
+  <rect x="64" y="738" width="5" height="80" rx="2" fill="#d18b39"/>
+  <text x="88" y="760" font-size="21" font-weight="700" fill="#925716">关键关口：图片与最终点云的空间对齐</text>
+  <text x="88" y="799" class="body">OMNI 同批图片、点云与位姿输出尚未接通；实机未验证，暂不放行部署与同步。</text>
+  <text x="64" y="866" class="small">进度依据：本机源码与静态审查。已有源码不等于新增功能已验收；不以旧测试结果替代本轮验证。</text>
+</svg>

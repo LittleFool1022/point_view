@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Point View</string>
+    <string name="title_activity_main">Point View</string>
+    <string name="package_name">com.zk.pointview</string>
+    <string name="custom_url_scheme">com.zk.pointview</string>
+</resources>

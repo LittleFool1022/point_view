@@ -1,0 +1,67 @@
+{
+  "schema": "survey-real-fixture/1",
+  "role": "primary-real-capture-baseline",
+  "source": "/home/jn/fast_livo_runtime/static_pcd_backup/production_small_20260911_194639/tri_true_color_20260911_200108_286.pcd",
+  "filename": "tri_true_color_20260911_200108_286.pcd",
+  "bytes": 800000584,
+  "sha256": "6194be9e2bc4ac14f1116bbc206c56dfbec7ded45b2b07bba497904de669293a",
+  "points": 20000000,
+  "data": "binary",
+  "pointStrideBytes": 40,
+  "headerBytes": 584,
+  "fields": [
+    "x",
+    "y",
+    "z",
+    "rgb",
+    "normal_x",
+    "normal_y",
+    "normal_z",
+    "curvature",
+    "confidence",
+    "observations"
+  ],
+  "fieldTypes": [
+    "F",
+    "F",
+    "F",
+    "U",
+    "F",
+    "F",
+    "F",
+    "F",
+    "F",
+    "U"
+  ],
+  "payloadLengthMatchesHeader": true,
+  "userProvenance": "用户明确指定为真实采集数据",
+  "modifiedOrDownsampled": false,
+  "units": "not explicitly declared in PCD header; capture metadata mentions voxel size in metres",
+  "accuracyGroundTruth": "not provided; this scan is a functional baseline, not independent dimensional ground truth",
+  "windowsPath": "C:\\Users\\Pixel\\SurveyStudio-0.1.0-20261020\\test-data\\real-capture\\tri_true_color_20260911_200108_286.pcd",
+  "baselinePolicy": "后续相关功能的真实数据验收以此原件为基准；派生分块或降采样文件必须单独命名、记录参数并保留原件哈希关联；合成样本不能替代真实场景验收。",
+  "initialAppLimits": {
+    "fileBytes": 268435456,
+    "analysisPoints": 4000000
+  },
+  "initialAppImportExpected": "blocked-by-file-and-point-limits",
+  "currentSupport": {
+    "version": "0.2.0",
+    "verifiedPlatform": "Windows x64",
+    "verifiedSourcePoints": 20000000,
+    "fileBytesLimit": 2147483648,
+    "binaryPcdGuardPoints": 50000000,
+    "previewPoints": 120000,
+    "analysis": "full-source grid moments; not raw pointwise fitting",
+    "verifiedFunctions": [
+      "original-import",
+      "XY/XZ/YZ-projection-review",
+      "annotations-DXF-analysis-json",
+      "stream-project-save-open",
+      "cancel-recover"
+    ],
+    "sourceHashRetained": true,
+    "constructionAccuracyAccepted": false,
+    "evidence": "../../artifacts/windows-large-20261020/result.json"
+  }
+}

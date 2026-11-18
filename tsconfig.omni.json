@@ -1,0 +1,4 @@
+{
+  "extends": "./tsconfig.app.json",
+  "include": ["src/handheld", "omni/*.tsx", "vite.omni.config.ts"]
+}

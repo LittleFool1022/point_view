@@ -1,0 +1,15 @@
+import { writeFile,mkdir } from 'node:fs/promises';
+import { demoRoom } from '../src/domain/demo';
+import { decodeSource, generateDrawing } from '../src/pipeline/analysis';
+import {STUDIO_VERSION} from '../src/version';
+const started=performance.now(),decodeStarted=started;
+const cloud = await decodeSource('synthetic-8x6.pcd', demoRoom(), 'm');
+const decodeSeconds=(performance.now()-decodeStarted)/1000,drawingStarted=performance.now();
+const model = generateDrawing(cloud, 'synthetic-8x6.pcd', 'xy', {});
+const points = model.entities.flatMap(entity => entity.category === 'wall' && entity.type === 'line' ? [entity.start, entity.end] : []);
+const extent = (axis: number) => Math.max(...points.map(p => p[axis]!)) - Math.min(...points.map(p => p[axis]!));
+const actualMm = [extent(0), extent(1)], referenceMm = [8000, 6000];
+const result = { version:STUDIO_VERSION,fixture: 'synthetic axis-aligned 8m x 6m walls', sourcePoints: cloud.visible.length, referenceMm, wallExtentMm: actualMm, errorMm: actualMm.map((value, i) => value - referenceMm[i]!), gridResolutionMm: model.accuracy.gridResolutionMm, runtime:{node:process.version,platform:process.platform,arch:process.arch},timing:{decodeSeconds,drawingSeconds:(performance.now()-drawingStarted)/1000,totalSeconds:(performance.now()-started)/1000},peakRssBytes:process.memoryUsage().rss, status: 'diagnostic-only; engineering accuracy not accepted' };
+await mkdir('artifacts',{recursive:true});
+await writeFile('artifacts/baseline-measurement.json', JSON.stringify(result, null, 2));
+console.log(JSON.stringify(result, null, 2));

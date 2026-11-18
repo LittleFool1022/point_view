@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1000" viewBox="0 0 1440 1000" role="img" aria-labelledby="title desc">
+<title id="title">OMNI 手持扫描与资产制作工作进展</title>
+<desc id="desc">依据2026年9月8日本地记录：OMNI small-2k 已完成限定60秒现场采集和经授权生产发布；本机制作台已有基础能力；图片附件链路与高保真纹理制作待完成。</desc>
+<defs><style>
+text{font-family:'Noto Sans CJK SC','Microsoft YaHei','PingFang SC',sans-serif}
+.h{font-size:25px;font-weight:700;fill:#172b45}.b{font-size:21px;fill:#43546a}.s{font-size:17px;fill:#6d7d90}.tag{font-size:17px;font-weight:700}.step{font-size:21px;font-weight:700;fill:#172b45}
+</style></defs>
+<rect width="1440" height="1000" fill="#f3f6fa"/>
+<rect width="1440" height="8" fill="#2563eb"/>
+<text x="64" y="77" font-size="38" font-weight="700" fill="#172b45">OMNI 手持扫描 → 三维资产交付</text>
+<text x="1376" y="75" text-anchor="end" class="s">工作进展 · 2026.09.08</text>
+<text x="64" y="119" class="b">设备端稳定采集，本机软件完成物体编辑与 GLB 交付</text>
+
+<rect x="64" y="155" width="644" height="335" rx="16" fill="white" stroke="#dde5ef"/>
+<rect x="732" y="155" width="644" height="335" rx="16" fill="white" stroke="#dde5ef"/>
+<text x="90" y="198" class="h">OMNI · SLAM 手持设备</text>
+<text x="758" y="198" class="h">Point View · 本机制作台</text>
+<text x="90" y="232" class="s">Orange Pi 5 Max / RK3588 / 8 GB</text>
+<text x="758" y="232" class="s">点云定形 + 结构辅助 + 原图外观</text>
+
+<rect x="90" y="258" width="140" height="30" rx="15" fill="#e5f3eb"/>
+<text x="160" y="279" text-anchor="middle" class="tag" fill="#287353">已有发布记录</text>
+<text x="90" y="323" class="b">SLAM 与三目真彩点云链路已运行</text>
+<text x="90" y="359" class="b">60 秒现场采集，PCD 导出与同步已有证据</text>
+<text x="90" y="395" class="b">small-2k 经授权发布，部署检查通过</text>
+<line x1="90" y1="417" x2="682" y2="417" stroke="#e5eaf1"/>
+<text x="90" y="449" class="s">限定已验证配置与场景；绝对精度、其他场景仍待验证</text>
+<text x="90" y="475" class="s">新增图片附件链路未上线，与既有 PCD 发布分开管理</text>
+
+<rect x="758" y="258" width="164" height="30" rx="15" fill="#eaf0ff"/>
+<text x="840" y="279" text-anchor="middle" class="tag" fill="#315db1">基础已有 · 持续开发</text>
+<text x="758" y="323" class="b">点云选物、网格生成、基础 GLB 导出已有源码</text>
+<text x="758" y="359" class="b">原图保存、草稿与工程恢复已写入源码</text>
+<text x="758" y="395" class="b">纸箱尺寸约束、按面贴图仍待开发</text>
+<line x1="758" y1="417" x2="1350" y2="417" stroke="#e5eaf1"/>
+<text x="758" y="449" class="s">新增素材与恢复流程待运行验证</text>
+<text x="758" y="475" class="s">当前 GLB 使用扫描颜色，尚无原图纹理</text>
+
+<text x="64" y="543" class="h">关键时间线</text>
+<text x="1376" y="541" text-anchor="end" class="s">历史节点按记录；后续工期待评估</text>
+<line x1="88" y1="584" x2="1118" y2="584" stroke="#ccd9ea" stroke-width="4"/>
+<circle cx="88" cy="584" r="12" fill="#35795c"/>
+<circle cx="431" cy="584" r="12" fill="#35795c"/>
+<circle cx="775" cy="584" r="12" fill="#2563eb"/>
+<circle cx="1118" cy="584" r="11" fill="white" stroke="#93aacb" stroke-width="3"/>
+<text x="64" y="632" class="step">09.07｜审查整改</text>
+<text x="64" y="668" class="b">标定接线、同步与导出审查</text>
+<text x="64" y="700" class="s">局部验证与候选整改推进</text>
+<text x="407" y="632" class="step">09.08｜设备阶段交付</text>
+<text x="407" y="668" class="b">现场采集、点云同步、发布</text>
+<text x="407" y="700" class="s">限定 small-2k 与本次验收范围</text>
+<text x="751" y="632" class="step">当前｜本机制作台</text>
+<text x="751" y="668" class="b">核对素材、坐标与恢复逻辑</text>
+<text x="751" y="700" class="s">准备本机功能验证</text>
+<text x="1094" y="632" class="step">后续｜高保真资产</text>
+<text x="1094" y="668" class="b">纸箱定形 → 贴图 → 联调</text>
+<text x="1094" y="700" class="s">本机验证后接入设备图片链路</text>
+
+<rect x="64" y="741" width="1312" height="153" rx="14" fill="#fff3e5"/>
+<text x="89" y="780" font-size="23" font-weight="700" fill="#975d21">下一阶段抓三件事</text>
+<text x="89" y="823" class="b">① 本机数据与恢复验证</text>
+<text x="520" y="823" class="b">② 纸箱结构与原图贴图</text>
+<text x="950" y="823" class="b">③ 图片、点云、位姿同批输出</text>
+<text x="89" y="868" font-size="20" fill="#975d21">放行关口：真实图片与最终点云空间对齐。新增图片链路未验证，暂不部署与同步。</text>
+
+<text x="64" y="932" class="s">依据：本地生产审查记录 §6.11–6.12 与制作台源码。本轮未连接设备复核当前运行状态。</text>
+<text x="64" y="962" class="s">生产发布不等于全部质量指标通过；3DGS 空间留存由其他同事负责。</text>
+</svg>

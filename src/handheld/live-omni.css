@@ -1,0 +1,612 @@
+.live-omni { height: 100%; }
+/* 内容在独立区域滚动，固定底部导航不随安全区容器滚动或遮挡焦点控件。 */
+#omni-safe-viewport .live-omni .app-body { height: 100%; overflow-y: auto; overscroll-behavior: contain; scroll-padding: 16px 0 96px; }
+.live-omni .live-home { display: grid; gap: 20px; }
+.live-omni .page-heading { margin-bottom: 12px; }
+.live-omni .device-card { padding: 20px; }
+.live-omni .white-card { margin-bottom: 20px; }
+.live-omni .live-detail, .live-omni .live-empty p { color: var(--ui-muted); font-size: var(--ui-compact); line-height: 1.7; overflow-wrap: anywhere; }
+.live-omni .full + .full { margin-top: 12px; }
+.live-stream-list { margin: 16px 0; display: grid; gap: 12px; font-size: var(--ui-compact); }
+.live-stream-list > div { display: flex; justify-content: space-between; gap: 12px; }
+.live-stream-list b { text-align: right; font-weight: 500; }
+.live-stream-list span { color: var(--ui-muted); }
+.live-settings { display: grid; gap: 12px; }
+.live-settings .field-label { margin: 0; }
+.live-settings input, .live-settings select { width: 100%; min-width: 0; min-height: 48px; }
+.live-settings select { border: 1px solid var(--ui-line-strong); border-radius: 8px; padding: 10px; background: var(--ui-paper); color: var(--ui-ink); }
+.live-empty { display: grid; justify-items: start; gap: 12px; }
+.live-empty h2 { font-size: var(--ui-subtitle); }
+.live-control-card { display: grid; gap: 12px; }
+.live-control-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.live-control-heading > div > span, .live-control-card > p { color: var(--ui-muted); font-size: var(--ui-caption); line-height: 1.6; overflow-wrap: anywhere; }
+.live-control-heading h2 { margin: 5px 0 0; font-size: var(--ui-subtitle); }
+.live-control-state { flex-shrink: 0; border-radius: 999px; padding: 6px 9px; background: var(--ui-soft); color: var(--ui-muted); font-size: var(--ui-caption); }
+.live-control-state.running { background: var(--ui-accent-soft); color: var(--ui-accent); }
+.live-capture .point-cloud-canvas { position: absolute; inset: 0; }
+/* 真实预览的操作层位于画中画之上，返回与底部按钮始终可触达。 */
+.live-capture .capture-header, .live-capture .capture-bottom { z-index: 7; }
+/* 预览页独立布局：顶部操作、状态、小窗、采集按钮、底部工具各占一块区域。 */
+#omni-safe-viewport .live-capture .capture-header {
+  inset: 0 0 auto;
+  height: 64px;
+  min-height: 64px;
+  padding: 8px 16px;
+  gap: 12px;
+  background: var(--ui-panel);
+}
+#omni-safe-viewport .live-capture .capture-header .icon-button {
+  width: 48px;
+  min-width: 48px;
+  height: 48px;
+}
+#omni-safe-viewport .live-capture .capture-title h1 { max-width: none; font-size: 16px; }
+#omni-safe-viewport .live-capture .capture-telemetry {
+  inset: 76px 16px auto;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  max-width: none;
+  font-size: 13px;
+  background: none;
+  padding: 0;
+}
+#omni-safe-viewport .live-capture .capture-guide {
+  inset: 108px auto auto 16px;
+  transform: none;
+  max-width: calc(100% - 160px);
+  min-height: 32px;
+  padding: 6px 10px;
+  font-size: 13px;
+  white-space: normal;
+}
+#omni-safe-viewport .live-capture.cloud-main .capture-camera-pane,
+#omni-safe-viewport .live-capture.camera-main .capture-cloud-pane {
+  inset: 152px auto auto 16px;
+  width: 208px;
+  height: 117px;
+  border-radius: 12px;
+}
+#omni-safe-viewport .live-capture .capture-controls {
+  inset: 50% 24px auto auto;
+  transform: translateY(-50%);
+  width: 104px;
+  gap: 8px;
+  padding: 0;
+  background: none;
+}
+#omni-safe-viewport .live-capture .capture-time { font-size: 24px; line-height: 1.2; }
+#omni-safe-viewport .live-capture .capture-time-label { margin: 0; font-size: 11px; }
+#omni-safe-viewport .live-capture .shutter { width: 72px; height: 72px; }
+#omni-safe-viewport .live-capture .shutter > span { width: 48px; height: 48px; }
+#omni-safe-viewport .live-capture .shutter-label { font-size: 13px; }
+#omni-safe-viewport .live-capture .capture-bottom {
+  inset: auto 16px 16px;
+  height: 48px;
+  justify-content: flex-end;
+  gap: 8px;
+}
+#omni-safe-viewport .live-capture .capture-switch-tools > .icon-button,
+#omni-safe-viewport .live-capture .capture-bottom-tools > .icon-button { min-width: 48px; min-height: 48px; }
+#omni-safe-viewport .live-capture .live-reconnect,
+#omni-safe-viewport .live-capture .connection-warning {
+  inset: auto auto 80px 16px;
+  width: min(440px, calc(100% - 160px));
+  max-width: none;
+  min-height: 48px;
+  padding: 12px;
+  flex-direction: row;
+  gap: 12px;
+}
+#omni-safe-viewport .live-capture.cloud-main .capture-cloud-pane > .live-preview-empty,
+#omni-safe-viewport .live-capture.camera-main .capture-camera-pane > .live-preview-empty {
+  inset: 144px 144px 144px 240px;
+}
+@media (orientation: portrait) {
+  #omni-safe-viewport .live-capture .capture-guide { max-width: calc(100% - 32px); }
+  #omni-safe-viewport .live-capture.cloud-main .capture-camera-pane,
+  #omni-safe-viewport .live-capture.camera-main .capture-cloud-pane {
+    inset: 192px 16px auto auto;
+    width: 160px;
+    height: 100px;
+  }
+  #omni-safe-viewport .live-capture .capture-controls {
+    inset: auto auto 80px 50%;
+    transform: translateX(-50%);
+  }
+  #omni-safe-viewport .live-capture .live-reconnect,
+  #omni-safe-viewport .live-capture .connection-warning {
+    inset: 108px 16px auto;
+    width: auto;
+    font-size: 13px;
+  }
+  #omni-safe-viewport .live-capture:has(.live-reconnect) .capture-guide,
+  #omni-safe-viewport .live-capture:has(.connection-warning) .capture-guide { display: none; }
+  #omni-safe-viewport .live-capture .live-reconnect > span,
+  #omni-safe-viewport .live-capture .connection-warning > div > span {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+  }
+  #omni-safe-viewport .live-capture.cloud-main .capture-cloud-pane > .live-preview-empty,
+  #omni-safe-viewport .live-capture.camera-main .capture-camera-pane > .live-preview-empty {
+    inset: 304px 16px 272px;
+    font-size: 13px;
+    gap: 8px;
+  }
+  #omni-safe-viewport .live-capture.cloud-main .capture-cloud-pane > .live-preview-empty > span,
+  #omni-safe-viewport .live-capture.camera-main .capture-camera-pane > .live-preview-empty > span { display: none; }
+}
+@media (orientation: landscape) and (max-height: 450px) {
+  #omni-safe-viewport .live-capture.cloud-main .capture-camera-pane,
+  #omni-safe-viewport .live-capture.camera-main .capture-cloud-pane {
+    inset: 148px auto auto 16px;
+    width: 176px;
+    height: 99px;
+  }
+  #omni-safe-viewport .live-capture .capture-controls { gap: 6px; }
+  #omni-safe-viewport .live-capture .shutter { width: 64px; height: 64px; }
+  #omni-safe-viewport .live-capture .shutter > span { width: 40px; height: 40px; }
+  #omni-safe-viewport .live-capture.cloud-main .capture-cloud-pane > .live-preview-empty,
+  #omni-safe-viewport .live-capture.camera-main .capture-camera-pane > .live-preview-empty {
+    inset: 108px 144px 112px 208px;
+  }
+  #omni-safe-viewport .live-capture .live-reconnect,
+  #omni-safe-viewport .live-capture .connection-warning {
+    left: 208px;
+    width: min(440px, calc(100% - 352px));
+  }
+  #omni-safe-viewport .live-capture.cloud-main .capture-cloud-pane > .live-preview-empty > span,
+  #omni-safe-viewport .live-capture.camera-main .capture-camera-pane > .live-preview-empty > span { display: none; }
+}
+.capture-save-button { min-height: 40px; padding: 8px 12px; border-radius: 8px; background: var(--ui-accent); color: var(--ui-light); font-size: var(--ui-caption); display: inline-flex; align-items: center; gap: 6px; }
+@keyframes omni-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.55; transform: scale(0.92); } }
+.icon-pulse { animation: omni-pulse 1.2s ease-in-out infinite; }
+.live-capture canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+.live-capture .capture-camera-pane > img { width: 100%; height: 100%; object-fit: contain; }
+.live-preview-empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--ui-light-muted); text-align: center; padding: 12px; font-size: var(--ui-compact); }
+.live-preview-status { position: absolute; top: 76px; left: 16px; display: grid; gap: 6px; z-index: 5; padding: 12px; max-width: calc(100% - 32px); background: var(--ui-panel); color: var(--ui-light-muted); border-radius: 8px; font-size: var(--ui-caption); pointer-events: none; }
+.live-image-status { position: absolute; left: 0; bottom: 0; width: 100%; padding: 4px 8px; background: var(--ui-panel); color: var(--ui-light-muted); font-size: var(--ui-caption); }
+.live-reconnect { position: absolute; bottom: 80px; left: 16px; right: 16px; z-index: 6; background: var(--ui-panel); color: var(--ui-light); border-radius: 8px; padding: 12px; display: flex; gap: 12px; align-items: center; font-size: var(--ui-compact); }
+.live-reconnect span { flex: 1; overflow-wrap: anywhere; }
+.live-reconnect button { flex-shrink: 0; }
+.live-omni button { min-height: 48px; }
+.live-confirm-backdrop { position: fixed; inset: 0; z-index: 120; display: grid; place-items: center; padding: 18px; background: var(--ui-overlay); }
+.live-confirm { width: min(420px, 100%); border-radius: var(--ui-card-radius); background: var(--ui-paper); color: var(--ui-ink); padding: 24px; box-shadow: var(--ui-shadow); }
+.live-confirm-icon { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 12px; background: var(--ui-accent-soft); color: var(--ui-accent); }
+.live-confirm h2 { margin: 18px 0 10px; font-size: var(--ui-subtitle); }
+.live-confirm p { color: var(--ui-muted); font-size: var(--ui-compact); line-height: 1.7; }
+.live-confirm-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 22px; }
+@media (orientation: landscape) {
+  .live-preview-status { top: 64px; }
+  .live-reconnect { right: 260px; }
+}
+@media (max-width: 380px) { .live-reconnect { flex-direction: column; align-items: stretch; } .capture-save-button { max-width: 120px; padding: 7px; } }
+
+/* 设备卡片标题栏与换绑操作入口 */
+.section-mini-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+.rebind-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--ui-accent);
+  background: rgba(37, 99, 235, 0.08);
+  border: 1px solid rgba(37, 99, 235, 0.18);
+  padding: 3px 10px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.rebind-action-btn:hover {
+  background: rgba(37, 99, 235, 0.16);
+  border-color: var(--ui-accent);
+}
+.connection-state.connecting {
+  color: #d97706;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 换绑提示与常用地址快捷胶囊 */
+.rebind-hint-box {
+  padding: 10px 14px;
+  background: var(--ui-secondary);
+  border: 1px solid var(--ui-line);
+  border-radius: var(--ui-radius);
+  font-size: 11px;
+  color: var(--ui-muted);
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+.preset-chips {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.chips-label {
+  font-size: 11px;
+  color: var(--ui-muted);
+}
+.chip-btn {
+  background: var(--ui-secondary);
+  border: 1px solid var(--ui-line);
+  border-radius: 12px;
+  padding: 3px 10px;
+  font-size: 11px;
+  color: var(--ui-ink);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.chip-btn:hover {
+  border-color: var(--ui-accent);
+  color: var(--ui-accent);
+  background: #eff6ff;
+}
+
+
+/* 现代化弹窗设备卡片 */
+.modal-device-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  background: var(--ui-secondary);
+  border: 1px solid var(--ui-line);
+  border-radius: var(--ui-card-radius);
+  margin-bottom: 16px;
+}
+.modal-device-card .device-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: #eff6ff;
+  color: #2563eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.modal-device-card .device-info {
+  flex: 1;
+  margin-left: 12px;
+}
+.modal-device-card .device-info h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ui-ink);
+  margin: 0;
+}
+.modal-device-card .device-info p {
+  font-size: 11px;
+  color: var(--ui-muted);
+  margin: 2px 0 0;
+}
+.modal-device-card .status-pill {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #e2e8f0;
+  color: #475569;
+}
+.modal-device-card .status-pill.online {
+  background: #dcfce7;
+  color: #166534;
+}
+.modal-device-card .status-pill .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* 现代化设置与偏好弹窗（点开头像） */
+.settings-profile-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  background: var(--ui-secondary);
+  border: 1px solid var(--ui-line);
+  border-radius: var(--ui-card-radius);
+  margin-bottom: 16px;
+}
+.settings-profile-card .avatar-badge {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #eff6ff;
+  border: 1.5px solid #bfdbfe;
+  color: #2563eb;
+  font-size: 19px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.settings-profile-card .profile-info {
+  flex: 1;
+  min-width: 0;
+}
+.settings-profile-card .profile-info h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ui-ink);
+}
+.settings-profile-card .profile-info p {
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: var(--ui-muted);
+}
+.profile-status-badge {
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #64748b;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+.profile-status-badge.online {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.settings-group {
+  background: var(--ui-secondary);
+  border: 1px solid var(--ui-line);
+  border-radius: var(--ui-card-radius);
+  padding: 4px 14px;
+  margin-bottom: 16px;
+}
+.settings-item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 11px 0;
+  font-size: 12px;
+  border-bottom: 1px solid var(--ui-line);
+}
+.settings-item-row:last-child {
+  border-bottom: none;
+}
+.settings-item-row .row-label {
+  color: var(--ui-muted);
+}
+.settings-item-row .row-value {
+  color: var(--ui-ink);
+  font-weight: 500;
+}
+.settings-item-row .mono-text {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  color: #475569;
+}
+.settings-item-row .row-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #64748b;
+  font-weight: 500;
+}
+.settings-item-row .row-badge.online {
+  background: #dcfce7;
+  color: #166534;
+}
+.settings-actions-group {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+.settings-actions-group button {
+  flex: 1;
+  min-height: 40px !important;
+  font-size: 13px !important;
+  font-weight: 500;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+.settings-actions-group .primary {
+  background: var(--ui-primary, #2563eb);
+  border: 1px solid var(--ui-primary, #2563eb);
+  color: #ffffff;
+}
+.settings-actions-group .primary:hover:not(:disabled) {
+  background: var(--ui-primary-hover, #1d4ed8);
+  border-color: var(--ui-primary-hover, #1d4ed8);
+}
+.settings-actions-group .secondary {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: #334155;
+}
+.settings-actions-group .secondary:hover:not(:disabled) {
+  background: #f8fafc;
+  border-color: #94a3b8;
+  color: #1e293b;
+}
+.settings-profile-section {
+  margin-top: 16px;
+}
+.settings-profile-section .field-label {
+  margin-bottom: 8px;
+  display: block;
+}
+.settings-profile-section .segmented {
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 3px;
+  gap: 3px;
+}
+.settings-profile-section .segmented button {
+  min-height: 36px !important;
+  font-size: 12px !important;
+  border-radius: 6px;
+  padding: 6px 10px;
+  color: #64748b;
+  background: transparent;
+  border: none;
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+.settings-profile-section .segmented button.active {
+  background: #ffffff;
+  color: var(--ui-primary, #2563eb);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+.demo-dialog .field-label {
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  color: #475569 !important;
+  margin: 12px 0 6px !important;
+}
+.demo-dialog .text-input {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1e293b;
+  font-size: 13px;
+  min-height: 40px;
+  box-sizing: border-box;
+}
+.demo-dialog .text-input:focus {
+  border-color: var(--ui-primary, #2563eb);
+  outline: 2px solid rgba(37, 99, 235, 0.15);
+}
+
+
+
+/* 状态与实际设备进程一致；列表采用文字信息，不用假缩略图冒充成果。 */
+.live-omni .device-connect-hint { margin-top: 14px; color: var(--ui-muted); font-size: 14px; line-height: 1.6; }
+.live-omni .sensor-status { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.live-omni .sensor-status small { font-size: 12px; color: var(--ui-muted); }
+.live-omni .records-page .page-heading { flex-wrap: wrap; gap: 12px; }
+.live-omni .record-tabs { flex-wrap: wrap; }
+.live-omni .records-empty { padding: 32px 16px; text-align: center; color: var(--ui-muted); font-size: 14px; line-height: 1.7; }
+.live-omni .project-card { text-align: left; }
+.live-omni .project-card-bottom { flex-wrap: wrap; gap: 8px; }
+.live-omni .brand-name { background: transparent; text-align: left; }
+.live-omni .notice-dot { flex: 0 0 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.live-omni .operation-error { color: var(--ui-danger, #b91c1c); background: var(--ui-paper); padding: 12px; border-radius: 8px; font-size: 14px; line-height: 1.6; }
+.live-capture .operation-error { position: absolute; inset: auto 16px 160px; z-index: 8; }
+.live-omni button:focus-visible, .live-omni input:focus-visible, .live-omni select:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 3px; }
+@media (max-width: 380px) { .live-omni .record-toolbar { flex-wrap: wrap; } .live-omni .search-sort { width: 100%; flex-wrap: wrap; } }
+
+.cloud-upload-control { display: grid; gap: 8px; }
+.cloud-upload-control > button { min-height: 48px; }
+.cloud-upload-control > span { font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.cloud-upload-control > progress { width: 100%; }
+.cloud-task-banner { position: fixed; z-index: 150; inset: auto 16px 96px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; border-radius: 10px; background: var(--ui-panel); color: var(--ui-light); font-size: 14px; }
+.live-omni .project-viewer .cloud-upload-control .secondary { background: #343b46; color: var(--ui-light); }
+
+/* 记录列表只展示项目；操作集中在详情，固定信息行数保持卡片对齐。 */
+.live-omni .records-grid { align-items: stretch; gap: 12px; }
+.live-omni .records-grid .project-card { display: flex; flex-direction: column; align-items: stretch; min-width: 0; width: 100%; height: 100%; padding: 16px; }
+.live-omni .records-grid .project-card-info { padding: 0; margin: 0; min-height: 52px; gap: 8px; }
+.live-omni .records-grid .project-card-info > div { min-width: 0; flex: 1; }
+.live-omni .records-grid .project-card-info > svg { flex-shrink: 0; width: 16px; }
+.live-omni .records-grid .project-card-info h3 { font-size: 14px; line-height: 22px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.live-omni .records-grid .project-card-info span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; line-height: 20px; }
+.live-omni .records-grid .project-card-bottom { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; flex-wrap: nowrap; gap: 4px; margin: 12px 0 0; padding: 12px 0 0; min-height: 50px; }
+.live-omni .records-grid .project-card-bottom > span { display: block; width: 100%; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; line-height: 18px; }
+.live-omni .records-grid .project-card-bottom svg { vertical-align: -2px; margin-right: 4px; }
+
+/* 对齐 2026-09 定稿 HTML 的手机页面节奏；只作用于真实 App 的展示层。
+   不恢复演示电量、模拟缩略图，也不覆盖采集控制和文件传输状态。 */
+#omni-safe-viewport .live-omni .brand-name {
+  font-size: 21px; letter-spacing: 2px; gap: 10px; padding: 0; border: 0;
+}
+#omni-safe-viewport .live-omni .brand-name b { font-size: 9px; }
+#omni-safe-viewport .live-omni .page-content { padding: 26px 20px 18px; }
+#omni-safe-viewport .live-omni .page-heading { margin-bottom: 24px; }
+#omni-safe-viewport .live-omni .device-card { padding: 16px; }
+.live-omni .rebind-action-btn {
+  min-width: 44px; min-height: 44px; padding: 0 10px; border: 1px solid var(--ui-line);
+  border-radius: var(--ui-radius); justify-content: center;
+  background: var(--ui-secondary); color: var(--ui-primary); font-size: 12px; letter-spacing: 0; gap: 6px;
+}
+.live-omni .record-heading-actions { display: flex; align-items: center; gap: 8px; }
+.live-omni .record-heading-actions > button { min-height: 44px; padding: 8px 12px; }
+.live-omni .record-heading-actions .record-import { width: 44px; padding: 0; justify-content: center; }
+.live-omni .record-tabs button { min-height: 44px; }
+.live-omni .records-grid { gap: 12px; }
+.live-omni .records-grid .project-card { padding: 0; }
+.live-omni .records-grid .project-card-info { padding: 17px 11px 10px; min-height: 86px; }
+.live-omni .records-grid .project-card-info h3 { margin: 0 0 8px; }
+.live-omni .records-grid .project-card-info span { display: flex; align-items: center; gap: 5px; }
+.live-omni .records-grid .project-card-bottom { margin: 0 11px; padding: 8px 0 11px; min-height: 60px; }
+#omni-safe-viewport .live-omni .side-nav { height: 70px; }
+#omni-safe-viewport .live-omni .nav-items { height: 70px; gap: 0; }
+#omni-safe-viewport .live-omni .nav-items button.nav-scan-add { height: 60px; min-height: 60px; transform: translateY(-20px); }
+@media (max-width: 380px) {
+  #omni-safe-viewport .live-omni .page-content { padding-left: 14px; padding-right: 14px; }
+  .live-omni .records-page .page-heading { align-items: center; }
+}
+@media (orientation: landscape) and (max-height: 450px) {
+  #omni-safe-viewport .live-omni .page-content { padding: 16px 20px 24px; }
+  #omni-safe-viewport .live-omni .side-nav, #omni-safe-viewport .live-omni .nav-items { height: 62px; }
+  #omni-safe-viewport .live-omni .nav-items button.nav-scan-add { flex-basis: 52px; height: 52px; min-height: 52px; transform: translateY(-12px); }
+}
+
+/* 新手指南：每张卡片只保留图标、标题和一段操作说明。 */
+.tutorial-guide { color: var(--ui-ink); }
+.tutorial-guide .tutorial-intro { margin: 2px 0 20px; font-size: 14px; line-height: 1.7; color: #475569; }
+.tutorial-steps { margin: 0; padding: 0; list-style: none; display: grid; gap: 12px; }
+.tutorial-steps > li { padding: 16px; border: 1px solid #e2e8f0; border-radius: 12px; background: #f8fafc; }
+.tutorial-step-heading { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.tutorial-step-icon { display: grid; place-items: center; width: 38px; height: 38px; flex: 0 0 38px; border-radius: 10px; background: #eaf1ff; color: #2563eb; }
+.tutorial-steps h3 { margin: 0; font-size: 16px; font-weight: 600; line-height: 1.5; color: #1f2937; }
+.tutorial-step-number { margin-left: auto; font-size: 12px; font-weight: 600; letter-spacing: 1px; color: #64748b; }
+.tutorial-steps p { margin: 0; font-size: 15px; line-height: 1.7; color: #334155; overflow-wrap: anywhere; }
+@media (max-width: 360px) { .tutorial-steps > li { padding: 12px; } .tutorial-step-heading { gap: 8px; } }
+
+/* 横屏扫描对齐原型：状态在左上，小窗贴左下，右侧保留采集与视图操作。 */
+@media (orientation: landscape) {
+  #omni-safe-viewport .live-capture.cloud-main .capture-camera-pane,
+  #omni-safe-viewport .live-capture.camera-main .capture-cloud-pane {
+    inset: auto auto 16px 16px; width: clamp(176px, 24vw, 240px);
+    height: auto; aspect-ratio: 16 / 9; border-radius: 12px;
+  }
+  #omni-safe-viewport .live-capture .capture-telemetry { right: 144px; gap: 8px 14px; }
+  #omni-safe-viewport .live-capture .live-reconnect,
+  #omni-safe-viewport .live-capture .connection-warning {
+    inset: 114px 144px auto 16px; width: auto; max-width: 540px;
+    padding: 10px 12px; font-size: 12px;
+  }
+  #omni-safe-viewport .live-capture:has(.live-reconnect) .capture-guide,
+  #omni-safe-viewport .live-capture:has(.connection-warning) .capture-guide { display: none; }
+  #omni-safe-viewport .live-capture.cloud-main .capture-cloud-pane > .live-preview-empty,
+  #omni-safe-viewport .live-capture.camera-main .capture-camera-pane > .live-preview-empty {
+    inset: 144px 144px 96px 260px;
+  }
+}
+
+/* 对齐原型的暂停入口，位于快门下方；这里只暂停预览，不停止设备采集。 */
+.live-capture .preview-pause-button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  width: 104px; min-height: 44px; padding: 8px 6px; margin-top: 4px;
+  border: 1px solid var(--ui-dark-line); border-radius: var(--ui-radius);
+  background: var(--ui-panel); color: var(--ui-light); font-size: 12px;
+}
+.live-capture .preview-pause-button:disabled { background: var(--ui-panel); color: var(--ui-light-muted); opacity: .55; }

@@ -1,0 +1,105 @@
+/* 主题只影响显示；原始点云颜色、模型材质与图纸数据保持原值。 */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg-app: #ffffff;
+  --bg-canvas: #ffffff;
+  --surface: #f5f6f6;
+  --surface-raised: #e9edef;
+  --surface-sunken: #ffffff;
+  --surface-accent: #eee9e2;
+  --text-primary: #20282d;
+  --text-secondary: #465158;
+  --text-muted: #626d74;
+  --text-disabled: #899197;
+  --border: #cdd3d7;
+  --border-strong: #929da5;
+  --accent: #755638;
+  --accent-hover: #604329;
+  --accent-active: #513921;
+  --accent-soft: #eee7de;
+  --success: #286746;
+  --success-soft: #e8f3eb;
+  --warning: #785612;
+  --warning-soft: #faf1dd;
+  --error: #a33630;
+  --error-soft: #fbece9;
+  --shadow-1: 0 1px 3px #17232c0a;
+  --shadow-2: 0 10px 30px #17232c12;
+  --shadow-3: 0 24px 64px #17232c24;
+}
+
+.connection .theme-toggle { flex-shrink: 0; color: var(--text-secondary); }
+.connection .theme-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+[data-theme="light"] :is(.topbar, .spatial-welcome, .welcome-paths, .object-studio, .object-stage) {
+  background: var(--bg-app); color: var(--text-primary); border-color: var(--border);
+}
+[data-theme="light"] .spatial-welcome { scrollbar-color: var(--border-strong) var(--bg-app); }
+[data-theme="light"] .brand-mark > span { background: var(--text-primary); }
+[data-theme="light"] .brand-mark > span:nth-child(3) { background: var(--accent); }
+[data-theme="light"] :is(.mode-tabs button.active, .mode-tabs button:hover:not(:disabled)) {
+  background: var(--surface-raised); color: var(--text-primary); border-color: var(--border);
+}
+[data-theme="light"] :is(.icon-button, .secondary-button, .connection-button):hover:not(:disabled) {
+  background: var(--surface-raised); color: var(--text-primary); border-color: var(--border-strong);
+}
+[data-theme="light"] :is(.primary-button, .connection-button.primary, .quality-export, .quality-review, .cad-exports .cad-export-primary, .object-primary, .welcome-import) {
+  background: var(--accent); color: #ffffff; border-color: var(--accent);
+}
+[data-theme="light"] :is(.primary-button, .connection-button.primary, .quality-export, .quality-review, .cad-exports .cad-export-primary, .object-primary, .welcome-import):hover:not(:disabled) {
+  background: var(--accent-hover); color: #ffffff; border-color: var(--accent-hover);
+}
+[data-theme="light"] :is(.welcome-description, .welcome-copy h1 > span, .welcome-connect) { color: var(--text-secondary); }
+[data-theme="light"] .welcome-wordmark { color: #e4e8ea; }
+[data-theme="light"] .welcome-paths > button { border-color: var(--border); }
+[data-theme="light"] :is(.welcome-paths > button:hover:not(:disabled), .welcome-artwork figcaption button:hover) { background: var(--surface); }
+
+[data-theme="light"] :is(.panel-glass, .is-workbench .tool-rail, .is-workbench .cloud-hud, .is-workbench .status-stack, .view-controls, .camera-badge, .map-wait,
+  .cad-open .cad-workspace, .cad-open .cad-parameter-panel, .cad-preview-toolbar, .cad-layer-trigger, .cad-layer-panel, .cad-entity-inspector,
+  .cad-parameter-panel, .cad-inspector-head, .cad-inspector-tabs, .cad-inspector-footer, .cad-annotation-inspector, .cad-placement-hint, .cad-mobile-switch,
+  .object-inspector, .object-inspector footer, .object-library) {
+  background: var(--surface); color: var(--text-primary); border-color: var(--border);
+}
+[data-theme="light"] :is(.camera-empty, .map-placeholder, .cad-preview-pane, .cad-preview-empty, .settings-drawer input, .settings-drawer select,
+  .cad-form-grid label > input, .cad-form-grid label > select, .cad-review-card .cad-annotations li, .object-name input, .object-studio select) {
+  background: var(--surface-sunken); color: var(--text-primary); border-color: var(--border-strong);
+}
+[data-theme="light"] :is(.camera-badge:hover, .panel-visibility-button:hover, .advanced-settings summary:hover) { background: var(--surface-raised); color: var(--text-primary); }
+[data-theme="light"] :is(.tool-rail button.active, .action-dock > button.active, .cad-projection-tabs button.active,
+  .cad-inspector-tabs button.active, .cad-review-card .cad-annotation-entry button.active, .panel-switcher button.active,
+  .cad-layer-trigger:hover, .cad-layer-trigger[aria-expanded="true"]) { color: var(--accent); background: var(--accent-soft); border-color: var(--accent); }
+[data-theme="light"] .action-dock > button.primary { color: var(--accent); }
+[data-theme="light"] :is(.cad-settings-toggle, .cad-link-toolbar button, .cad-cloud-toolbar button, .cad-mobile-switch button,
+  .object-stage-tools button, .object-row button, .object-details button, .object-materials button, .object-library-grid button) {
+  background: var(--surface-raised); color: var(--text-secondary); border-color: var(--border-strong);
+}
+[data-theme="light"] :is(.cad-settings-toggle[aria-expanded="true"], .cad-link-toolbar button[aria-pressed="true"], .cad-mobile-switch button[aria-pressed="true"],
+  .object-stage-tools button[aria-pressed="true"], .object-materials button[aria-pressed="true"]) {
+  background: var(--accent-soft); color: var(--accent); border-color: var(--accent);
+}
+[data-theme="light"] :is(.cad-link-status, .cad-cloud-toolbar, .cad-link-status small, .object-stage-heading > span, .object-eyebrow,
+  .object-stage-heading p, .object-steps, .object-intro p, .object-details p, .object-check p, .object-selection-count span, .object-details label,
+  .object-footer-links button, .object-text-button, .object-name, .object-dimensions > span, .object-source, .object-library > p, .object-library-grid small) { color: var(--text-secondary); }
+[data-theme="light"] :is(.object-icon, .object-details summary, .object-unit-check, .object-loading button, .object-library header button) { color: var(--text-primary); }
+[data-theme="light"] :is(.object-steps li[aria-current="step"], .object-materials button > svg, .object-progress, .cad-link-status[data-link-kind="neighborhood"] > span) { color: var(--accent); }
+[data-theme="light"] :is(.object-icon, .object-steps, .object-details, .object-check) { border-color: var(--border); }
+[data-theme="light"] .object-stage-foot { background: #fffffff2; color: var(--text-secondary); border-color: var(--border); }
+[data-theme="light"] .object-loading { background: #ffffffed; }
+[data-theme="light"] .object-library { box-shadow: 0 0 0 40px #ffffffc9, var(--shadow-3); }
+[data-theme="light"] :is(.object-studio input[type="range"], .object-unit-check input) { accent-color: var(--accent); }
+[data-theme="light"] .object-studio :is(button, input, select, summary):focus-visible { outline-color: var(--accent); }
+[data-theme="light"] .object-learning { color: var(--text-secondary); border-color: var(--success); }
+[data-theme="light"] :is(.quality-findings article, .object-warning, .object-message, .cad-preview-stale) {
+  background: var(--warning-soft); color: var(--warning); border-color: #c9af77;
+}
+[data-theme="light"] :is(.quality-findings strong, .quality-summary .warn strong, .quality-summary .confidence strong, .status-card > strong.warn) { color: var(--warning); }
+[data-theme="light"] :is(.quality-summary .pass strong, .quality-metrics article.pass span, .cad-workflow-badge[data-status="preview-ready"], .cad-workflow-badge[data-status="completed"], .status-card > strong.good) { color: var(--success); }
+[data-theme="light"] :is(.object-message.is-error, .cad-workflow-error, .action-notice.error) { color: var(--error); background: var(--error-soft); border-color: #c9928c; }
+[data-theme="light"] :is(.quality-summary .fail strong, .action-dock > button.recording) { color: var(--error); }
+
+@media (max-width: 400px) {
+  .topbar { padding-inline: 12px; column-gap: 6px; }
+  .connection { gap: 4px; }
+  .brand { gap: 6px; }
+  .brand > div small { font-size: 9px; letter-spacing: 0; }
+}

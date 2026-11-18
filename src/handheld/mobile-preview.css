@@ -1,0 +1,36 @@
+/* 电脑仅承载手机画幅预览，不呈现桌面版产品布局。 */
+.mobile-preview-stage {
+  min-height: 100dvh;
+  padding: 26px 44px 22px;
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  background: #e9eeeb;
+}
+.mobile-preview-header {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 28px;
+  color: #496557;
+}
+.mobile-preview-header > div { display: flex; gap: 12px; align-items: center; }
+.mobile-preview-header strong { display: block; font-size: 15px; letter-spacing: 1px; }
+.mobile-preview-header small { display: block; font-size: 12px; margin-top: 5px; color: #75877a; }
+.mobile-preview-header button { min-height: 44px; padding: 10px 15px; border: 1px solid #cad7ce; border-radius: 8px; font-size: 13px; background: #f4f7f4; }
+.mobile-device-frame {
+  width: 390px;
+  height: min(844px, calc(100dvh - 168px));
+  min-height: 560px;
+  padding: 0;
+  border: 7px solid #34483f;
+  border-radius: 29px;
+  overflow: hidden;
+  background: #f5f7f8;
+  box-shadow: 0 20px 60px #2c4b3620, 0 0 0 1px #7d8e80;
+}
+.mobile-device-frame.landscape { width: 858px; height: 404px; min-height: 404px; margin-top: max(0px, calc((100dvh - 670px) / 2)); }
+.mobile-device-frame iframe { display: block; width: 100%; height: 100%; border: 0; }
+.mobile-preview-caption { margin-top: 20px; font-size: 12px; color: #637b6b; display: flex; gap: 18px; line-height: 1.8; }
+.mobile-preview-caption span { color: #86978b; }

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "OMNI Scan",
+  "version": "0.1.0",
+  "identifier": "com.guanyao.omniscan",
+  "build": {
+    "beforeDevCommand": "npm --prefix .. run dev:omni:app",
+    "beforeBuildCommand": "npm --prefix .. run build:omni:app",
+    "devUrl": "http://127.0.0.1:5174",
+    "frontendDist": "../dist-app"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [{ "label": "main", "title": "OMNI Scan", "width": 393, "height": 851 }],
+    "security": {
+      "devCsp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ipc: http://ipc.localhost http://10.42.0.1:8766 ws: wss:; worker-src 'self' blob:; object-src 'none'; frame-src 'none'",
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ipc: http://ipc.localhost http://10.42.0.1:8766 ws: wss:; worker-src 'self' blob:; object-src 'none'; frame-src 'none'"
+    }
+  },
+  "bundle": { "active": true, "targets": "all", "icon": ["../../build/icon-512x512.png"], "android": { "minSdkVersion": 28 } }
+}

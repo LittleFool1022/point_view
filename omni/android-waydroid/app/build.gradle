@@ -1,0 +1,15 @@
+apply plugin: 'com.android.application'
+
+android {
+    namespace 'com.guanyao.omniscan.waydroid'
+    compileSdk 36
+    defaultConfig {
+        applicationId 'com.guanyao.omniscan.waydroid'
+        minSdk 28
+        targetSdk 33
+        versionCode 1
+        versionName '0.1.0-waydroid-test'
+    }
+    buildFeatures { buildConfig true }
+    sourceSets.main.assets.srcDirs = ['../../dist-app']
+}

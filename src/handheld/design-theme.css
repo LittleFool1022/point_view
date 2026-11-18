@@ -1,0 +1,148 @@
+/* 参考 Revue DESIGN.md 的 Studio 视觉语义，适配手机既有流程。 */
+:root{
+  --ui-workspace:#f1f5f9;--ui-paper:#fff;--ui-secondary:#f8fafc;
+  --ui-ink:#1f2937;--ui-muted:#6b7280;--ui-line:#e2e8f0;--ui-line-strong:#cbd5e1;
+  --ui-primary:#2563eb;--ui-primary-hover:#3b82f6;--ui-focus:#0ea5e9;
+  --ui-selection:#eff6ff;--ui-scene:#111827;--ui-panel:rgba(31,41,55,.92);
+  --ui-light:#f9fafb;--ui-light-muted:#cbd5e1;--ui-dark-line:rgba(37,99,235,.25);
+  --ui-selected-dark:#334155;--ui-active-dark:#93c5fd;
+  --ui-success:#16a34a;--ui-warning:#d97706;--ui-danger:#dc2626;
+  --ui-disabled:#e5e7eb;--ui-disabled-ink:#6b7280;--ui-overlay:rgba(17,24,39,.55);
+  --ui-shadow:0 8px 32px rgba(17,24,39,.2);--ui-blur:12px;
+  --ui-xs:4px;--ui-sm:8px;--ui-md:12px;--ui-lg:16px;--ui-xl:20px;--ui-2xl:24px;
+  --ui-radius:8px;--ui-card-radius:12px;--ui-round:50%;--ui-touch:44px;
+  --ui-body:14px;--ui-compact:13px;--ui-caption:12px;--ui-title:26px;--ui-subtitle:20px;
+  --ui-font:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
+  --accent:var(--ui-primary);--accent-dark:var(--ui-primary-hover);--ink:var(--ui-ink);--muted:var(--ui-muted);--line:var(--ui-line);--surface:var(--ui-paper);
+  font-family:var(--ui-font);font-size:var(--ui-body);color:var(--ui-ink);background:var(--ui-workspace);
+}
+.handheld-app{--toolbar-bg:var(--ui-panel);--toolbar-border:var(--ui-dark-line);--toolbar-text:var(--ui-light);--toolbar-active:var(--ui-active-dark);--toolbar-selected:var(--ui-selected-dark);background:var(--ui-workspace);color:var(--ui-ink)}
+.app-header{background:var(--ui-paper);border-color:var(--ui-line)}
+.brand-name,.page-heading h1,.device-identity h2,.white-card h2{color:var(--ui-ink)}
+.brand-name b,.device-identity>div>span,.device-metrics>div>span,.project-card-info span,.project-card-bottom,.page-heading p,.experience-content p,.experience-features{color:var(--ui-muted)}
+.page-heading h1{font-size:var(--ui-title);font-weight:600;letter-spacing:-.01em;line-height:1.3}
+.page-heading .heading-dot{display:none}
+.device-card,.white-card,.project-card,.experience-card{background:var(--ui-paper);border-color:var(--ui-line);border-radius:var(--ui-card-radius)}
+.scan-launch-layout .device-card{border-radius:var(--ui-card-radius);padding:var(--ui-lg)}
+.primary,.nav-items button.nav-scan-add{background:var(--ui-primary);color:var(--ui-light)}
+.primary:hover,.nav-items button.nav-scan-add:hover{background:var(--ui-primary-hover);color:var(--ui-light)}
+.primary,.secondary,.text-input{border-radius:var(--ui-radius);font-size:var(--ui-body)}
+.primary,.secondary,.text-button,.device-connect,.pause-button{min-height:var(--ui-touch)}
+.secondary,.text-input,.search-field,.search-sort select{background:var(--ui-paper);color:var(--ui-ink);border-color:var(--ui-line-strong)}
+.device-connect{color:var(--ui-ink);border-color:var(--ui-line);font-size:var(--ui-compact)}
+.connection-state,.sensor-status>div,.sensor-status>button{color:var(--ui-muted)}
+.connection-state.online,.sensor-status .ready{color:var(--ui-success)}
+.sensor-status .ready svg{filter:none}
+.device-metrics strong{color:var(--ui-ink)}
+.segmented{background:var(--ui-secondary);border:1px solid var(--ui-line)}
+.segmented button{color:var(--ui-muted);font-size:var(--ui-compact);min-height:var(--ui-touch)}
+.segmented button.active{background:var(--ui-selection);color:var(--ui-primary)}
+.experience-art{background:var(--ui-secondary)}
+.experience-label{background:var(--ui-selection);color:var(--ui-primary)}
+.experience-content h2{font-size:var(--ui-subtitle)}
+.side-nav,.viewer-toolstrip,.capture-view-switch{background:var(--ui-panel);backdrop-filter:blur(var(--ui-blur));border-color:var(--ui-dark-line)}
+.nav-items button{color:var(--ui-light-muted);font-size:var(--ui-caption)}
+.nav-items button.active{color:var(--ui-active-dark)}
+.nav-items button.active svg{background:var(--ui-selected-dark);box-shadow:0 0 0 6px var(--ui-selected-dark)}
+.nav-items button.nav-scan-add{border-color:var(--ui-scene);color:var(--ui-light);box-shadow:var(--ui-shadow)}
+.nav-items button.nav-scan-add svg{background:none;box-shadow:none}
+.detail-viewport,.capture-page{background:var(--ui-scene)}
+.capture-header{background:linear-gradient(var(--ui-panel),transparent)}
+.capture-title h1,.capture-time{color:var(--ui-light)}
+.capture-telemetry,.capture-time-label,.shutter-label{color:var(--ui-light-muted)}
+.capture-guide,.viewport-tag{background:var(--ui-panel);border-color:var(--ui-dark-line);color:var(--ui-light-muted);backdrop-filter:blur(var(--ui-blur))}
+.capture-telemetry{font-size:var(--ui-caption)}
+.viewer-toolstrip button,.capture-view-switch>button{font-size:var(--ui-caption);min-height:var(--ui-touch)}
+.viewport-actions .icon-button,.capture-header .icon-button,.capture-bottom-tools .icon-button{min-width:var(--ui-touch);min-height:var(--ui-touch);backdrop-filter:blur(var(--ui-blur))}
+.pause-button{font-size:var(--ui-caption)}
+.shutter{color:var(--ui-danger)}
+.shutter.is-recording{color:var(--ui-danger);background:var(--ui-paper)}
+.phase-overlay{background:var(--ui-overlay);backdrop-filter:blur(var(--ui-blur))}
+.phase-overlay>div{background:var(--ui-panel);color:var(--ui-light);border-radius:var(--ui-card-radius);padding:var(--ui-2xl)}
+.phase-overlay p{color:var(--ui-light-muted)}
+.demo-dialog{background:var(--ui-paper);color:var(--ui-ink);border-radius:var(--ui-card-radius);border:1px solid var(--ui-line);box-shadow:var(--ui-shadow)}
+.demo-dialog::backdrop{background:var(--ui-overlay)}
+.dialog-description,.help-steps span,.tool-card p,.tool-card small{font-size:var(--ui-compact);color:var(--ui-muted);line-height:1.65}
+.dialog-body .primary,.dialog-body .secondary,.dialog-body .text-button{font-size:var(--ui-body)}
+.dialog-body .field-label{font-size:var(--ui-compact);color:var(--ui-ink)}
+.info-note{background:var(--ui-secondary);color:var(--ui-muted);border-color:var(--ui-line);font-size:var(--ui-caption)}
+.danger-button{background:var(--ui-danger);color:var(--ui-light)}
+.danger-text,.form-error{color:var(--ui-danger);font-size:var(--ui-compact)}
+.toast{background:var(--ui-panel);color:var(--ui-light);border-color:var(--ui-dark-line);font-size:var(--ui-compact)}
+button:disabled{opacity:1;background:var(--ui-disabled);color:var(--ui-disabled-ink);box-shadow:none;transform:none}
+.viewer-toolstrip button:disabled{background:var(--ui-selected-dark);color:var(--ui-light-muted)}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--ui-focus);outline-offset:var(--ui-xs)}
+@media(max-width:700px){.page-content{padding-left:var(--ui-xl);padding-right:var(--ui-xl)}.dialog-body{padding:var(--ui-xl)}.project-card-info h3{font-size:var(--ui-body)}.project-card-info span,.project-card-bottom{font-size:var(--ui-caption)}}
+/* 相机演示视图保留现场操作层；暗底文字层保证不同场景下可读。 */
+.optical-caption{position:absolute;left:50%;top:22%;transform:translateX(-50%);display:flex;align-items:center;gap:var(--ui-sm);padding:var(--ui-sm) var(--ui-md);background:var(--ui-panel);color:var(--ui-light-muted);border-radius:var(--ui-radius);font-size:var(--ui-caption);pointer-events:none}
+.capture-bottom-tools[hidden]{display:none}
+.optical-view .capture-telemetry,.optical-view .capture-controls{background:var(--ui-panel);padding:var(--ui-sm);border-radius:var(--ui-radius)}
+.optical-view .capture-header{background:var(--ui-panel)}
+.optical-lenses{position:absolute;left:var(--ui-xl);bottom:84px;display:flex;gap:var(--ui-xs);padding:var(--ui-xs);background:var(--ui-panel);border:1px solid var(--ui-dark-line);border-radius:var(--ui-radius)}
+.optical-lenses button{min-width:var(--ui-touch);min-height:var(--ui-touch);font-size:var(--ui-caption);border-radius:var(--ui-radius);color:var(--ui-light-muted)}
+.optical-lenses button.active{background:var(--ui-selected-dark);color:var(--ui-active-dark)}
+@media(max-width:700px) and (orientation:portrait){.optical-lenses{bottom:180px;left:50%;transform:translateX(-50%)}}
+.optical-caption{top:118px}
+@media(max-width:700px) and (orientation:portrait){.optical-caption{top:164px}}
+/* 画中画保持两路视图常驻；切换只改变层级与尺寸。 */
+.capture-panes{position:absolute;inset:0}
+.capture-cloud-pane,.capture-camera-pane{position:absolute;inset:0;background:var(--ui-scene)}
+.pip-view.cloud-main .capture-camera-pane,.pip-view.camera-main .capture-cloud-pane{inset:auto auto 84px 20px;width:248px;height:174px;z-index:4;border:1px solid var(--ui-line-strong);border-radius:var(--ui-radius);overflow:hidden;box-shadow:var(--ui-shadow)}
+.capture-camera-pane .optical-caption{top:0;left:0;right:0;transform:none;min-height:30px;border-radius:0;padding:var(--ui-sm);pointer-events:none}
+.cloud-main .capture-camera-pane>.demo-scene{top:30px;bottom:48px}
+.capture-camera-pane .optical-lenses{left:0;right:0;bottom:0;transform:none;justify-content:center;border-radius:0;padding:0;height:48px;gap:0;z-index:6}
+.capture-camera-pane .optical-lenses button{flex:1;min-width:0;min-height:var(--ui-touch);padding:0}
+.pip-swap{position:absolute;inset:0 0 48px;z-index:5;align-items:flex-start;justify-content:flex-end;padding:var(--ui-sm);color:var(--ui-light)}
+.pip-swap svg{background:var(--ui-panel);border-radius:var(--ui-xs)}
+.camera-main .capture-cloud-pane .pip-swap{bottom:0;justify-content:space-between;background:linear-gradient(var(--ui-overlay),transparent 30%)}
+.camera-main .capture-camera-pane>.demo-scene{inset:0}
+.camera-main .capture-camera-pane .optical-caption{top:66px;left:50%;right:auto;transform:translateX(-50%);border-radius:var(--ui-radius)}
+.camera-main .capture-camera-pane .optical-lenses{left:224px;right:auto;bottom:24px;width:224px;border-radius:var(--ui-radius)}
+.camera-main .capture-controls,.camera-main .capture-telemetry{background:var(--ui-panel);border-radius:var(--ui-radius);padding:var(--ui-sm)}
+.pip-view .capture-guide{top:8px;z-index:4;pointer-events:none}
+@media(max-width:700px) and (orientation:portrait){
+ .pip-view.cloud-main .capture-camera-pane,.pip-view.camera-main .capture-cloud-pane{inset:176px 12px auto auto;width:172px;height:164px}
+ .pip-view .capture-guide{top:124px;left:50%;transform:translateX(-50%);white-space:nowrap}
+ .camera-main .capture-camera-pane .optical-caption{top:80px;left:auto;right:12px;transform:none;font-size:11px}
+ .camera-main .capture-camera-pane .optical-lenses{left:12px;right:12px;bottom:180px;width:auto}
+ .cloud-main .capture-camera-pane .optical-caption{font-size:11px;padding:var(--ui-sm) var(--ui-xs)}
+}
+@media(orientation:landscape){.pip-view .capture-telemetry{top:76px;left:20px;display:flex;flex-direction:row;gap:var(--ui-lg);align-items:center}}
+/* 悬浮窗只承载画面；视图与镜头控制集中于右下角。 */
+.compact-pip .capture-bottom{justify-content:flex-end;gap:var(--ui-sm)}
+.capture-switch-tools{display:flex;gap:var(--ui-sm);position:relative}
+.capture-switch-tools>.icon-button{background:var(--ui-panel);color:var(--ui-light);border:1px solid var(--ui-dark-line);min-height:var(--ui-touch);padding:var(--ui-sm);font-size:var(--ui-caption)}
+.lens-popover{position:absolute;right:0;bottom:56px;display:flex;padding:var(--ui-xs);gap:var(--ui-xs);background:var(--ui-panel);border:1px solid var(--ui-dark-line);border-radius:var(--ui-radius);box-shadow:var(--ui-shadow)}
+.lens-popover button{min-width:44px;min-height:44px;color:var(--ui-light);border-radius:var(--ui-radius)}
+.lens-popover button.active{background:var(--ui-selected-dark);color:var(--ui-active-dark)}
+.compact-pip.cloud-main .capture-camera-pane,.compact-pip.camera-main .capture-cloud-pane{width:224px;height:126px;left:12px;right:auto;bottom:auto;top:clamp(112px,var(--pip-y),calc(100% - 206px));border-color:var(--ui-line-strong)}
+.compact-pip.pip-right.cloud-main .capture-camera-pane,.compact-pip.pip-right.camera-main .capture-cloud-pane{left:auto;right:112px}
+.compact-pip .capture-camera-pane>.demo-scene{inset:0}
+.pip-drag{position:absolute;inset:0;z-index:5;touch-action:none;cursor:grab}
+.pip-drag:active{cursor:grabbing}
+.pip-expand{position:absolute;right:4px;top:4px;width:36px;height:36px;z-index:6;background:var(--ui-overlay);color:var(--ui-light);border-radius:var(--ui-radius)}
+.camera-fullscreen.camera-main .capture-cloud-pane,.camera-fullscreen.cloud-main .capture-camera-pane{display:none}
+.exit-camera-fullscreen{position:absolute;left:20px;top:66px;z-index:6;min-height:44px;padding:var(--ui-sm);border-radius:var(--ui-radius);background:var(--ui-panel);color:var(--ui-light);font-size:var(--ui-caption)}
+.camera-fullscreen .capture-telemetry{display:none}
+@media(max-width:700px) and (orientation:portrait){
+ .compact-pip.cloud-main .capture-camera-pane,.compact-pip.camera-main .capture-cloud-pane{width:172px;height:100px;top:clamp(176px,var(--pip-y),calc(100% - 324px))}
+ .compact-pip.pip-right.cloud-main .capture-camera-pane,.compact-pip.pip-right.camera-main .capture-cloud-pane{right:12px}
+ .compact-pip .capture-bottom{left:12px;right:12px;gap:4px}
+ .capture-switch-tools{gap:4px}
+ .capture-switch-tools>.icon-button{font-size:12px;padding:6px}
+}
+
+/* 横屏小窗贴近下边缘，镜头菜单与底部工具同排展开。 */
+@media(orientation:landscape){
+ .compact-pip.cloud-main .capture-camera-pane,.compact-pip.camera-main .capture-cloud-pane{top:clamp(112px,var(--pip-y),calc(100% - 138px))}
+ .compact-pip.pip-right.cloud-main .capture-camera-pane,.compact-pip.pip-right.camera-main .capture-cloud-pane{top:clamp(112px,var(--pip-y),calc(100% - 206px))}
+ .compact-pip .capture-bottom{bottom:12px}
+ .lens-popover{right:calc(100% + 8px);bottom:0;gap:0;padding:0;min-height:44px}
+ .lens-popover button{min-width:44px}
+}
+@media(orientation:landscape) and (max-width:700px){.lens-popover{right:0;bottom:52px}}
+.movement-speed{font-variant-numeric:tabular-nums;white-space:nowrap}
+.handheld-app{--ui-warning-light:#fbbf24;--ui-warning-panel:rgba(120,75,10,.92)}
+.capture-telemetry .movement-speed.is-speeding{color:var(--ui-warning-light)}
+.capture-guide.speed-warning{background:var(--ui-warning-panel);color:var(--ui-warning-light);border-color:var(--ui-warning)}
+@media(max-width:700px) and (orientation:portrait){.pip-view .capture-telemetry{left:16px;right:16px;top:78px;display:flex;flex-direction:row;flex-wrap:wrap;gap:8px 14px;font-size:12px}.pip-view .capture-telemetry>span{white-space:nowrap}}
